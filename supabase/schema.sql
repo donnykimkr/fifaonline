@@ -66,6 +66,15 @@ create table if not exists public.community_replies (
   created_at timestamptz default now()
 );
 
+create table if not exists public.community_votes (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid references public.community_posts(id) on delete cascade,
+  user_id uuid references public.profiles(id) on delete cascade,
+  vote_type text check (vote_type in ('up', 'down')),
+  created_at timestamptz default now(),
+  unique(post_id, user_id)
+);
+
 alter table public.profiles enable row level security;
 alter table public.visited_countries enable row level security;
 alter table public.friends enable row level security;
@@ -73,6 +82,7 @@ alter table public.activities enable row level security;
 alter table public.landmark_visits enable row level security;
 alter table public.community_posts enable row level security;
 alter table public.community_replies enable row level security;
+alter table public.community_votes enable row level security;
 
 create policy "Authenticated users can read profiles"
   on public.profiles for select
@@ -175,4 +185,20 @@ create policy "users can update own replies"
 
 create policy "users can delete own replies"
   on public.community_replies for delete
+  using (auth.uid() = user_id);
+
+create policy "community votes readable"
+  on public.community_votes for select
+  using (true);
+
+create policy "authenticated users can vote"
+  on public.community_votes for insert
+  with check (auth.uid() = user_id);
+
+create policy "users can update own votes"
+  on public.community_votes for update
+  using (auth.uid() = user_id);
+
+create policy "users can delete own votes"
+  on public.community_votes for delete
   using (auth.uid() = user_id);

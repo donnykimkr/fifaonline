@@ -387,6 +387,29 @@ button:disabled {
   background: #f0fdfa;
 }
 
+.instagram-panel {
+  padding: 12px 14px;
+}
+
+.instagram-panel a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #475569;
+  text-decoration: none;
+  font-weight: 900;
+}
+
+.instagram-panel a:hover {
+  color: #be185d;
+}
+
+.instagram-panel small {
+  margin-left: auto;
+  color: #94a3b8;
+  font-size: 0.76rem;
+}
+
 .profile-card-user {
   display: flex;
   align-items: center;
@@ -901,6 +924,54 @@ button:disabled {
   background: #ffffff;
 }
 
+.community-board-stat {
+  margin-top: 7px !important;
+  color: #475569 !important;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.community-post-layout {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.community-post-main {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.vote-column {
+  display: grid;
+  align-content: start;
+  justify-items: center;
+  gap: 2px;
+  color: #64748b;
+  font-weight: 900;
+}
+
+.vote-button {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: #64748b;
+  background: transparent;
+}
+
+.vote-button:hover {
+  background: #f1f5f9;
+}
+
+.vote-button.is-selected {
+  color: #0f766e;
+  background: #ccfbf1;
+}
+
 .community-post-meta {
   display: flex;
   align-items: center;
@@ -912,6 +983,26 @@ button:disabled {
 
 .community-post-meta strong {
   color: #0f172a;
+}
+
+.post-edit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  margin-left: auto;
+  padding: 0 8px;
+  border: 1px solid #dbe3ed;
+  border-radius: 999px;
+  color: #475569;
+  background: #ffffff;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.post-edit-button:hover {
+  border-color: #94a3b8;
+  background: #f8fafc;
 }
 
 .community-post h3 {
@@ -960,6 +1051,32 @@ button:disabled {
 
 .community-post-image {
   max-height: 360px;
+}
+
+.post-edit-form {
+  display: grid;
+  gap: 10px;
+}
+
+.post-edit-form input,
+.post-edit-form textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  outline: none;
+  background: #f8fafc;
+}
+
+.post-edit-form textarea {
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.post-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .reply-block {
