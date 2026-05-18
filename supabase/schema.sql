@@ -64,7 +64,8 @@ create table if not exists public.community_replies (
   post_id uuid references public.community_posts(id) on delete cascade,
   user_id uuid references public.profiles(id) on delete cascade,
   body text not null,
-  created_at timestamptz default now()
+  created_at timestamptz default now(),
+  updated_at timestamptz
 );
 
 create table if not exists public.community_votes (

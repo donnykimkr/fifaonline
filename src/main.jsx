@@ -61,6 +61,7 @@ const TEXT = {
     community: "Community",
     communityBody: "Body",
     communityBodyPlaceholder: "Share a quick note for this country board.",
+    communityComments: "{count} comments",
     communityDeletePost: "Delete",
     communityDeleteConfirm: "Delete this post?",
     communityEditPost: "Edit",
@@ -75,6 +76,7 @@ const TEXT = {
     communityReplyPlaceholder: "Write a reply...",
     communityRemoveImage: "Remove image",
     communitySavePost: "Save post",
+    communitySaveReply: "Save reply",
     communitySetupRequired:
       "Database setup required: run the latest community migrations in Supabase SQL Editor, then refresh this page.",
     communityTitle: "Title",
@@ -90,7 +92,10 @@ const TEXT = {
     europe: "Europe",
     friend: "Friend",
     friendActivityEmpty: "Friend activity will show up here.",
+    friendClearSelection: "All friends",
     friendFallback: "A friend",
+    friendMapTitle: "Travelers",
+    friendSelected: "Selected friend",
     friendVisitNone: "Friends: none",
     friendVisits: "Friends",
     friends: "Friends",
@@ -159,6 +164,7 @@ const TEXT = {
     worldSeen: "Mark the world you have seen.",
     yes: "YES",
     no: "NO",
+    you: "You",
     youVisited: "You visited",
     noFriendsCountry: "No friends have marked this country yet.",
     noTravelerFound: "No traveler found for that username.",
@@ -188,6 +194,7 @@ const TEXT = {
     community: "커뮤니티",
     communityBody: "내용",
     communityBodyPlaceholder: "이 나라 게시판에 짧은 글을 남겨보세요.",
+    communityComments: "댓글 {count}개",
     communityDeletePost: "삭제",
     communityDeleteConfirm: "이 게시글을 삭제할까요?",
     communityEditPost: "수정",
@@ -202,6 +209,7 @@ const TEXT = {
     communityReplyPlaceholder: "답글을 입력하세요...",
     communityRemoveImage: "이미지 제거",
     communitySavePost: "글 저장",
+    communitySaveReply: "답글 저장",
     communitySetupRequired:
       "데이터베이스 설정이 필요합니다: Supabase SQL Editor에서 최신 community migration을 실행한 뒤 새로고침해 주세요.",
     communityTitle: "제목",
@@ -217,7 +225,10 @@ const TEXT = {
     europe: "유럽",
     friend: "친구",
     friendActivityEmpty: "친구 활동이 여기에 표시됩니다.",
+    friendClearSelection: "전체 친구",
     friendFallback: "친구",
+    friendMapTitle: "여행자",
+    friendSelected: "선택한 친구",
     friendVisitNone: "친구: 없음",
     friendVisits: "친구",
     friends: "친구",
@@ -286,6 +297,7 @@ const TEXT = {
     worldSeen: "내가 본 세계를 기록하세요.",
     yes: "예",
     no: "아니요",
+    you: "나",
     youVisited: "내 방문",
     noFriendsCountry: "아직 이 나라를 방문한 친구가 없습니다.",
     noTravelerFound: "해당 사용자명을 찾을 수 없습니다.",
@@ -582,6 +594,7 @@ function getCountryStyle(feature, context) {
   const isHomeCountry = Boolean(homeCountryCode && code === homeCountryCode);
   const isUserVisited = context.visitedMine.has(code);
   const isFriendVisited = context.visitedFriend.has(code);
+  const selectedFriendMode = Boolean(context.selectedFriendMode);
 
   const base = {
     lineCap: "round",
@@ -605,11 +618,11 @@ function getCountryStyle(feature, context) {
     return {
       ...base,
       color: "#b45309",
-      weight: selected ? 1.5 : 0.75,
-      opacity: selected ? 0.5 : 0.26,
+      weight: selected || selectedFriendMode ? 1.5 : 0.75,
+      opacity: selected ? 0.5 : selectedFriendMode ? 0.42 : 0.26,
       fill: true,
       fillColor: "#f59e0b",
-      fillOpacity: selected ? 0.34 : 0.3,
+      fillOpacity: selected ? 0.34 : selectedFriendMode ? 0.32 : 0.3,
     };
   }
 
@@ -629,11 +642,11 @@ function getCountryStyle(feature, context) {
     return {
       ...base,
       color: "#059669",
-      weight: selected ? 1.45 : 0.7,
-      opacity: selected ? 0.42 : 0.22,
+      weight: selected || selectedFriendMode ? 1.45 : 0.7,
+      opacity: selected ? 0.42 : selectedFriendMode ? 0.46 : 0.22,
       fill: true,
       fillColor: "#6ee7b7",
-      fillOpacity: selected ? 0.24 : 0.2,
+      fillOpacity: selected ? 0.24 : selectedFriendMode ? 0.3 : 0.2,
     };
   }
 
@@ -922,6 +935,7 @@ function TravelMap({
   onRemoveVisited,
   onCollectLandmark,
   onMissingCountry,
+  selectedFriend,
 }) {
   const geoJsonRef = useRef(null);
   const [zoom, setZoom] = useState(2);
@@ -945,8 +959,9 @@ function TravelMap({
         visitedMine,
         visitedFriend,
         renderer: countryRenderer,
+        selectedFriendMode: Boolean(selectedFriend),
       }),
-    [countryRenderer, homeCode, selectedCountry?.code, visitedFriend, visitedMine],
+    [countryRenderer, homeCode, selectedCountry?.code, selectedFriend, visitedFriend, visitedMine],
   );
 
   useEffect(() => {
@@ -1091,7 +1106,7 @@ function TravelMap({
         noWrap={false}
       />
       <GeoJSON
-        key={`${visitedMine.size}-${visitedFriend.size}-${language}`}
+        key={`${visitedMine.size}-${visitedFriend.size}-${language}-${selectedFriend?.id || "all"}`}
         ref={geoJsonRef}
         data={geojson}
         style={styleFeature}
@@ -1229,6 +1244,64 @@ function FriendPanel({ friends, friendQuery, setFriendQuery, language, onAddFrie
       ) : (
         <p className="empty-text">{t(language, "addFriendPrompt")}</p>
       )}
+    </aside>
+  );
+}
+
+function FriendMapRow({ profile, friends, selectedFriendId, language, onSelectFriend, onClearSelection }) {
+  return (
+    <div className="friend-map-row" aria-label={t(language, "friendMapTitle")}>
+      <button
+        className={`friend-story-chip ${selectedFriendId ? "" : "is-selected"}`}
+        onClick={onClearSelection}
+        title={t(language, "friendClearSelection")}
+      >
+        <span className="friend-story-all">
+          <Globe2 size={18} />
+        </span>
+        <span>{t(language, "friendClearSelection")}</span>
+      </button>
+      {profile && (
+        <button className="friend-story-chip" onClick={onClearSelection} title={t(language, "you")}>
+          <Avatar user={profile} size="md" />
+          <span>{t(language, "you")}</span>
+        </button>
+      )}
+      {friends.map((friend) => (
+        <button
+          key={friend.id}
+          className={`friend-story-chip ${selectedFriendId === friend.id ? "is-selected" : ""}`}
+          onClick={() => onSelectFriend(friend.id)}
+          title={friend.username || t(language, "friendFallback")}
+        >
+          <Avatar user={friend} size="md" />
+          <span>{friend.username || t(language, "friendFallback")}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SelectedFriendPanel({ friend, visitCount, language, onClear }) {
+  if (!friend) return null;
+  return (
+    <aside className="side-panel selected-friend-panel">
+      <div className="selected-friend-card">
+        <Avatar user={friend} size="md" />
+        <div>
+          <p className="eyebrow">{t(language, "friendSelected")}</p>
+          <h2>{friend.username || t(language, "friendFallback")}</h2>
+          <p>
+            {visitCount} {t(language, "countriesVisited")}
+          </p>
+          <p className="profile-home-line">
+            {getHomeCountryDisplay(friend, language) || `🏳 ${t(language, "noHomeCountry")}`}
+          </p>
+        </div>
+      </div>
+      <button className="secondary-action" onClick={onClear}>
+        {t(language, "friendClearSelection")}
+      </button>
     </aside>
   );
 }
@@ -1650,6 +1723,8 @@ function CommunityModal({
   onUpdatePost,
   onDeletePost,
   onCreateReply,
+  onUpdateReply,
+  onDeleteReply,
   onVote,
   onClose,
 }) {
@@ -1659,10 +1734,12 @@ function CommunityModal({
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
   const [error, setError] = useState("");
+  const [selectedPostId, setSelectedPostId] = useState("");
 
   const boardCountry = selectedCountry || countries[0];
   const boardCode = normalizeCountryCode(boardCountry?.code);
   const myRole = getCommunityRole({ countryCode: boardCode, homeCountryCode, visitedSet: mineSet });
+  const selectedPost = posts.find((post) => post.id === selectedPostId) || null;
 
   const matches = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -1849,27 +1926,45 @@ function CommunityModal({
                   post={post}
                   author={author}
                   role={role}
+                  replyCount={(repliesByPost.get(post.id) || []).length}
                   voteSummary={voteSummaryByPost.get(post.id) || { score: 0, myVote: "" }}
                   currentUserId={currentUserId}
                   language={language}
                   onUpdatePost={onUpdatePost}
                   onDeletePost={onDeletePost}
                   onVote={onVote}
-                >
-                  <ReplyList
-                    post={post}
-                    replies={repliesByPost.get(post.id) || []}
-                    language={language}
-                    isSaving={replyingPostId === post.id}
-                    onCreateReply={onCreateReply}
-                  />
-                </CommunityPostCard>
+                  onOpenComments={() => setSelectedPostId(post.id)}
+                />
               );
             })
           ) : (
             <p className="empty-text">{t(language, "communityEmpty")}</p>
           )}
         </div>
+
+        {selectedPost && (
+          <PostDetailModal
+            post={selectedPost}
+            author={selectedPost.profiles || {}}
+            role={getCommunityRole({
+              countryCode: boardCode,
+              homeCountryCode: selectedPost.profiles?.home_country_code,
+              visitedSet: authorVisitedMap.get(selectedPost.user_id) || new Set(),
+            })}
+            voteSummary={voteSummaryByPost.get(selectedPost.id) || { score: 0, myVote: "" }}
+            replies={repliesByPost.get(selectedPost.id) || []}
+            currentUserId={currentUserId}
+            language={language}
+            isSavingReply={replyingPostId === selectedPost.id}
+            onUpdatePost={onUpdatePost}
+            onDeletePost={onDeletePost}
+            onVote={onVote}
+            onCreateReply={onCreateReply}
+            onUpdateReply={onUpdateReply}
+            onDeleteReply={onDeleteReply}
+            onClose={() => setSelectedPostId("")}
+          />
+        )}
       </section>
     </div>
   );
@@ -1885,7 +1980,9 @@ function CommunityPostCard({
   onUpdatePost,
   onDeletePost,
   onVote,
-  children,
+  replyCount,
+  onOpenComments,
+  hideCommentButton = false,
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [title, setTitle] = useState(post.title || "");
@@ -2054,14 +2151,77 @@ function CommunityPostCard({
             </>
           )}
 
-          {!isEditing && children}
+          {!isEditing && !hideCommentButton && (
+            <button className="comment-toggle-button" onClick={onOpenComments}>
+              <MessageCircle size={16} />
+              {formatText(language, "communityComments", { count: replyCount || 0 })}
+            </button>
+          )}
         </div>
       </div>
     </article>
   );
 }
 
-function ReplyList({ post, replies, language, isSaving, onCreateReply }) {
+function PostDetailModal({
+  post,
+  author,
+  role,
+  voteSummary,
+  replies,
+  currentUserId,
+  language,
+  isSavingReply,
+  onUpdatePost,
+  onDeletePost,
+  onVote,
+  onCreateReply,
+  onUpdateReply,
+  onDeleteReply,
+  onClose,
+}) {
+  return (
+    <div className="post-detail-backdrop" role="dialog" aria-modal="true" aria-labelledby="post-detail-title">
+      <section className="post-detail-modal">
+        <div className="modal-title-row">
+          <div>
+            <p className="eyebrow">{t(language, "community")}</p>
+            <h2 id="post-detail-title">{post.title}</h2>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose} title={t(language, "close")} aria-label={t(language, "close")}>
+            <X size={18} />
+          </button>
+        </div>
+        <CommunityPostCard
+          post={post}
+          author={author}
+          role={role}
+          replyCount={replies.length}
+          voteSummary={voteSummary}
+          currentUserId={currentUserId}
+          language={language}
+          onUpdatePost={onUpdatePost}
+          onDeletePost={onDeletePost}
+          onVote={onVote}
+          onOpenComments={() => {}}
+          hideCommentButton
+        />
+        <ReplyList
+          post={post}
+          replies={replies}
+          currentUserId={currentUserId}
+          language={language}
+          isSaving={isSavingReply}
+          onCreateReply={onCreateReply}
+          onUpdateReply={onUpdateReply}
+          onDeleteReply={onDeleteReply}
+        />
+      </section>
+    </div>
+  );
+}
+
+function ReplyList({ post, replies, currentUserId, language, isSaving, onCreateReply, onUpdateReply, onDeleteReply }) {
   const [body, setBody] = useState("");
   const [error, setError] = useState("");
 
@@ -2084,16 +2244,14 @@ function ReplyList({ post, replies, language, isSaving, onCreateReply }) {
       {replies.length > 0 && (
         <ul className="reply-list">
           {replies.map((reply) => (
-            <li key={reply.id}>
-              <Avatar user={reply.profiles} size="sm" />
-              <div>
-                <div className="reply-meta">
-                  <strong>{reply.profiles?.username || t(language, "friendFallback")}</strong>
-                  <span>{formatTimestamp(reply.created_at, language)}</span>
-                </div>
-                <p>{reply.body}</p>
-              </div>
-            </li>
+            <ReplyItem
+              key={reply.id}
+              reply={reply}
+              currentUserId={currentUserId}
+              language={language}
+              onUpdateReply={onUpdateReply}
+              onDeleteReply={onDeleteReply}
+            />
           ))}
         </ul>
       )}
@@ -2110,6 +2268,77 @@ function ReplyList({ post, replies, language, isSaving, onCreateReply }) {
       </form>
       {error && <p className="form-error">{error}</p>}
     </div>
+  );
+}
+
+function ReplyItem({ reply, currentUserId, language, onUpdateReply, onDeleteReply }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [body, setBody] = useState(reply.body || "");
+  const [error, setError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const canEdit = Boolean(currentUserId && reply.user_id === currentUserId);
+
+  useEffect(() => {
+    if (!isEditing) {
+      setBody(reply.body || "");
+      setError("");
+    }
+  }, [isEditing, reply.body]);
+
+  const handleSave = async (event) => {
+    event.preventDefault();
+    const cleanBody = body.trim();
+    setError("");
+    if (!cleanBody) return;
+
+    setIsSaving(true);
+    const result = await onUpdateReply(reply, cleanBody);
+    setIsSaving(false);
+    if (result?.error) {
+      setError(result.error);
+      return;
+    }
+    setIsEditing(false);
+  };
+
+  const handleDelete = async () => {
+    if (!window.confirm(t(language, "communityDeleteConfirm"))) return;
+    const result = await onDeleteReply(reply);
+    if (result?.error) setError(result.error);
+  };
+
+  return (
+    <li>
+      <Avatar user={reply.profiles} size="sm" />
+      <div>
+        <div className="reply-meta">
+          <strong>{reply.profiles?.username || t(language, "friendFallback")}</strong>
+          <span>{formatTimestamp(reply.created_at, language)}</span>
+          {isEditedPost(reply) && <span>{t(language, "edited")}</span>}
+          {canEdit && (
+            <span className="reply-actions">
+              <button className="post-edit-button" onClick={() => setIsEditing((current) => !current)}>
+                {t(language, "communityEditPost")}
+              </button>
+              <button className="post-edit-button danger" onClick={handleDelete}>
+                {t(language, "communityDeletePost")}
+              </button>
+            </span>
+          )}
+        </div>
+        {isEditing ? (
+          <form className="reply-edit-form" onSubmit={handleSave}>
+            <input value={body} onChange={(event) => setBody(event.target.value)} maxLength={800} />
+            <button className="secondary-action" disabled={isSaving || !body.trim()}>
+              {isSaving ? t(language, "saving") : t(language, "communitySaveReply")}
+            </button>
+          </form>
+        ) : (
+          <p>{reply.body}</p>
+        )}
+        {error && <p className="form-error">{error}</p>}
+      </div>
+    </li>
   );
 }
 
@@ -2189,6 +2418,7 @@ function App() {
   const [mineVisits, setMineVisits] = useState([]);
   const [friendVisits, setFriendVisits] = useState([]);
   const [friends, setFriends] = useState([]);
+  const [selectedFriendId, setSelectedFriendId] = useState("");
   const [activities, setActivities] = useState([]);
   const [selectedCountry, setSelectedCountry] = useState(null);
   const [friendQuery, setFriendQuery] = useState("");
@@ -2259,15 +2489,32 @@ function App() {
     );
   }, [countryOptions, homeCountryCode, selectedCountry?.code]);
 
+  const selectedFriend = useMemo(
+    () => friends.find((friend) => friend.id === selectedFriendId) || null,
+    [friends, selectedFriendId],
+  );
+
+  const selectedFriendVisitSet = useMemo(() => {
+    if (!selectedFriendId) return new Set();
+    return new Set(
+      friendVisits
+        .filter((visit) => visit.user_id === selectedFriendId)
+        .map((visit) => normalizeCountryCode(visit.country_code))
+        .filter(Boolean),
+    );
+  }, [friendVisits, selectedFriendId]);
+
   const visitState = useMemo(() => {
     const mineSet = new Set(
       mineVisits
         .map((visit) => normalizeCountryCode(visit.country_code))
         .filter((code) => code && code !== homeCountryCode),
     );
-    const friendSet = new Set(friendVisits.map((visit) => normalizeCountryCode(visit.country_code)));
+    const friendSet = selectedFriendId
+      ? selectedFriendVisitSet
+      : new Set(friendVisits.map((visit) => normalizeCountryCode(visit.country_code)));
     return { mineSet, friendSet };
-  }, [friendVisits, homeCountryCode, mineVisits]);
+  }, [friendVisits, homeCountryCode, mineVisits, selectedFriendId, selectedFriendVisitSet]);
 
   const displayedVisitCount = visitState.mineSet.size + (homeCountryCode ? 1 : 0);
 
@@ -2409,7 +2656,7 @@ function App() {
       supabase.from("visited_countries").select("*").eq("user_id", userId),
       supabase
         .from("friends")
-        .select("friend_id, friend:profiles!friends_friend_id_fkey(id, username, avatar_url)")
+        .select("friend_id, friend:profiles!friends_friend_id_fkey(id, username, avatar_url, home_country_code)")
         .eq("user_id", userId),
     ]);
 
@@ -2556,6 +2803,12 @@ function App() {
   useEffect(() => {
     refreshSocialData();
   }, [refreshSocialData]);
+
+  useEffect(() => {
+    if (selectedFriendId && !friends.some((friend) => friend.id === selectedFriendId)) {
+      setSelectedFriendId("");
+    }
+  }, [friends, selectedFriendId]);
 
   useEffect(() => {
     refreshGlobalStats();
@@ -2954,18 +3207,35 @@ function App() {
         imageUrl = null;
       }
 
-      const { data, error } = await supabase
+      const updatedAt = new Date().toISOString();
+      let { data, error } = await supabase
         .from("community_posts")
         .update({
           title: updates.title,
           body: updates.body,
           image_url: imageUrl,
-          updated_at: new Date().toISOString(),
+          updated_at: updatedAt,
         })
         .eq("id", post.id)
         .eq("user_id", userId)
         .select("*, profiles!community_posts_user_id_fkey(id, username, avatar_url, home_country_code)")
         .single();
+
+      if (error && isMissingCommunityPostsError(error)) {
+        const fallback = await supabase
+          .from("community_posts")
+          .update({
+            title: updates.title,
+            body: updates.body,
+            image_url: imageUrl,
+          })
+          .eq("id", post.id)
+          .eq("user_id", userId)
+          .select("*, profiles!community_posts_user_id_fkey(id, username, avatar_url, home_country_code)")
+          .single();
+        data = fallback.data ? { ...fallback.data, updated_at: updatedAt } : fallback.data;
+        error = fallback.error;
+      }
 
       if (error) {
         return {
@@ -3113,6 +3383,82 @@ function App() {
       return { data };
     },
     [language, session?.user?.id],
+  );
+
+  const handleUpdateCommunityReply = useCallback(
+    async (reply, body) => {
+      const userId = session?.user?.id;
+      if (!supabase || !userId) return { error: t(language, "profileStillLoading") };
+      if (!reply?.id || reply.user_id !== userId) return { error: t(language, "profileStillLoading") };
+
+      const optimisticUpdatedAt = new Date().toISOString();
+      setCommunityReplies((current) =>
+        current.map((item) =>
+          item.id === reply.id ? { ...item, body, updated_at: optimisticUpdatedAt } : item,
+        ),
+      );
+
+      let { data, error } = await supabase
+        .from("community_replies")
+        .update({ body, updated_at: optimisticUpdatedAt })
+        .eq("id", reply.id)
+        .eq("user_id", userId)
+        .select("*, profiles!community_replies_user_id_fkey(id, username, avatar_url)")
+        .single();
+
+      if (error && isMissingCommunityPostsError(error)) {
+        const fallback = await supabase
+          .from("community_replies")
+          .update({ body })
+          .eq("id", reply.id)
+          .eq("user_id", userId)
+          .select("*, profiles!community_replies_user_id_fkey(id, username, avatar_url)")
+          .single();
+        data = fallback.data ? { ...fallback.data, updated_at: optimisticUpdatedAt } : fallback.data;
+        error = fallback.error;
+      }
+
+      if (error) {
+        setCommunityReplies((current) => current.map((item) => (item.id === reply.id ? reply : item)));
+        return {
+          error: isMissingCommunityPostsError(error) ? t(language, "communitySetupRequired") : error.message,
+        };
+      }
+
+      if (data) {
+        setCommunityReplies((current) => current.map((item) => (item.id === data.id ? data : item)));
+      }
+
+      return { data };
+    },
+    [language, session?.user?.id],
+  );
+
+  const handleDeleteCommunityReply = useCallback(
+    async (reply) => {
+      const userId = session?.user?.id;
+      if (!supabase || !userId) return { error: t(language, "profileStillLoading") };
+      if (!reply?.id || reply.user_id !== userId) return { error: t(language, "profileStillLoading") };
+
+      const previousReplies = communityReplies;
+      setCommunityReplies((current) => current.filter((item) => item.id !== reply.id));
+
+      const { error } = await supabase
+        .from("community_replies")
+        .delete()
+        .eq("id", reply.id)
+        .eq("user_id", userId);
+
+      if (error) {
+        setCommunityReplies(previousReplies);
+        return {
+          error: isMissingCommunityPostsError(error) ? t(language, "communitySetupRequired") : error.message,
+        };
+      }
+
+      return { data: true };
+    },
+    [communityReplies, language, session?.user?.id],
   );
 
   useEffect(() => {
@@ -3472,6 +3818,8 @@ function App() {
           onUpdatePost={handleUpdateCommunityPost}
           onDeletePost={handleDeleteCommunityPost}
           onCreateReply={handleCreateCommunityReply}
+          onUpdateReply={handleUpdateCommunityReply}
+          onDeleteReply={handleDeleteCommunityReply}
           onVote={handleCommunityVote}
           onClose={() => setIsCommunityOpen(false)}
         />
@@ -3479,6 +3827,14 @@ function App() {
 
       <section className="workspace">
         <div className="map-wrap">
+          <FriendMapRow
+            profile={profile}
+            friends={friends}
+            selectedFriendId={selectedFriendId}
+            language={language}
+            onSelectFriend={setSelectedFriendId}
+            onClearSelection={() => setSelectedFriendId("")}
+          />
           {countryOptions.length > 0 && (
             <CountrySearch
               countries={countryOptions}
@@ -3503,6 +3859,7 @@ function App() {
               onRemoveVisited={handleRemoveVisited}
               onCollectLandmark={handleCollectLandmark}
               onMissingCountry={() => setNotice(t(language, "countryNotFound"))}
+              selectedFriend={selectedFriend}
             />
           ) : (
             <div className="map-fallback">
@@ -3528,6 +3885,12 @@ function App() {
             onRemoveVisited={handleRemoveVisited}
             onOpenCommunity={openCommunity}
             isSaving={isSavingVisit}
+          />
+          <SelectedFriendPanel
+            friend={selectedFriend}
+            visitCount={selectedFriendVisitSet.size}
+            language={language}
+            onClear={() => setSelectedFriendId("")}
           />
           {profile && (
             <FriendPanel
