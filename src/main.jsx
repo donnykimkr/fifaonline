@@ -31,14 +31,16 @@ const BADGES = [
 ];
 const TILE_LAYERS = {
   en: {
-    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    subdomains: "abc",
+    url: "https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: "abcd",
   },
   ko: {
-    url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    subdomains: "abc",
+    url: "https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains: "abcd",
   },
 };
 const TEXT = {
@@ -144,17 +146,12 @@ const TEXT = {
     uploadAvatar: "Upload avatar",
     uploadImage: "Upload image",
     username: "Username",
-    homeCountry: "Home country",
-    homeRole: "Home",
-    noHomeCountry: "No home country set",
-    chooseHomeCountry: "Choose your home country",
-    chooseHomeCountryCopy: "Your home country is tracked separately and does not count as a normal visited country.",
-    saveHomeCountry: "Save home country",
-    selectHomeCountryRequired: "Select a home country to continue.",
     countryNotFound: "Country not found on the map.",
-    databaseSetupRequired:
-      "Database setup required: run supabase/migrations/006_profiles_home_country_guard.sql in Supabase SQL Editor, then refresh this page.",
+    databaseSetupRequired: "Database setup required: run the latest Supabase migrations, then refresh this page.",
     removeVisited: "Remove from visited",
+    editNickname: "Edit nickname",
+    nicknamePrompt: "Private nickname",
+    nicknameSaved: "Nickname saved",
     badges: "Badges",
     unlocked: "Unlocked",
     locked: "Locked",
@@ -289,17 +286,12 @@ const TEXT = {
     uploadAvatar: "아바타 업로드",
     uploadImage: "이미지 업로드",
     username: "사용자명",
-    homeCountry: "홈 국가",
-    homeRole: "홈",
-    noHomeCountry: "홈 국가 미설정",
-    chooseHomeCountry: "홈 국가를 선택하세요",
-    chooseHomeCountryCopy: "홈 국가는 일반 방문 국가와 별도로 저장됩니다.",
-    saveHomeCountry: "홈 국가 저장",
-    selectHomeCountryRequired: "계속하려면 홈 국가를 선택해 주세요.",
     countryNotFound: "지도에서 해당 국가를 찾지 못했습니다.",
-    databaseSetupRequired:
-      "데이터베이스 설정이 필요합니다: Supabase SQL Editor에서 supabase/migrations/006_profiles_home_country_guard.sql을 실행한 뒤 새로고침해 주세요.",
+    databaseSetupRequired: "데이터베이스 설정이 필요합니다. 최신 Supabase migration을 실행한 뒤 새로고침해 주세요.",
     removeVisited: "방문 기록에서 제거",
+    editNickname: "닉네임 수정",
+    nicknamePrompt: "나만 볼 친구 닉네임",
+    nicknameSaved: "닉네임을 저장했습니다",
     badges: "배지",
     unlocked: "해제됨",
     locked: "잠김",
@@ -407,12 +399,6 @@ function formatText(language, key, values = {}) {
   );
 }
 
-function isMissingHomeCountryColumnError(error) {
-  return String(error?.message || error || "")
-    .toLowerCase()
-    .includes("home_country_code");
-}
-
 function isMissingCommunityPostsError(error) {
   const message = String(error?.message || error || "").toLowerCase();
   return (
@@ -447,21 +433,17 @@ function percent(value, total) {
   return Math.round((value / total) * 100);
 }
 
-function getHomeCountryDisplay(profile, language) {
-  const code = normalizeCountryCode(profile?.home_country_code);
-  if (!code) return "";
-  return `${countryFlag(code)} ${getCountryName(code, language)}`;
+function getDisplayName(user, language = DEFAULT_LANGUAGE) {
+  return user?.display_name || user?.friend_nickname || user?.username || t(language, "friendFallback");
 }
 
-function getCommunityRole({ countryCode, homeCountryCode, visitedSet }) {
+function getCommunityRole({ countryCode, visitedSet }) {
   const boardCode = normalizeCountryCode(countryCode);
-  if (boardCode && normalizeCountryCode(homeCountryCode) === boardCode) return "home";
   if (visitedSet?.has?.(boardCode)) return "visited";
   return "guest";
 }
 
 function getRoleLabel(role, language) {
-  if (role === "home") return t(language, "homeRole");
   if (role === "visited") return t(language, "visited");
   return t(language, "guest");
 }
@@ -490,7 +472,7 @@ function escapeHtml(value) {
 }
 
 function Avatar({ user, size = "md" }) {
-  const username = user?.username || "Traveler";
+  const username = user?.display_name || user?.friend_nickname || user?.username || "Traveler";
 
   return user?.avatar_url ? (
     <img className={`avatar avatar-${size}`} src={user.avatar_url} alt={`${username} avatar`} />
@@ -508,12 +490,12 @@ function createAvatarIcon(friends) {
     <div class="map-avatar-stack">
       ${visible
         .map((friend) => {
-          const username = escapeHtml(friend.username || "Friend");
+          const username = escapeHtml(getDisplayName(friend));
           const avatarUrl = escapeHtml(friend.avatar_url || "");
           return avatarUrl
             ? `<img class="map-avatar" src="${avatarUrl}" alt="${username}" />`
             : `<span class="map-avatar map-avatar-fallback" title="${username}">${escapeHtml(
-                avatarLetter(friend.username),
+                avatarLetter(getDisplayName(friend)),
               )}</span>`;
         })
         .join("")}
@@ -605,9 +587,7 @@ function getIsoA2FromFeature(feature) {
 
 function getCountryStyle(feature, context) {
   const code = getIsoA2FromFeature(feature);
-  const homeCountryCode = normalizeCountryCode(context.homeCountryCode);
   const selected = context.selectedCountryCode === code;
-  const isHomeCountry = Boolean(homeCountryCode && code === homeCountryCode);
   const isUserVisited = context.visitedMine.has(code);
   const isFriendVisited = context.visitedFriend.has(code);
   const selectedFriendMode = Boolean(context.selectedFriendMode);
@@ -618,24 +598,12 @@ function getCountryStyle(feature, context) {
     renderer: context.renderer,
   };
 
-  if (isHomeCountry) {
-    return {
-      ...base,
-      color: "#b91c1c",
-      weight: selected ? 2.2 : 1.5,
-      opacity: selected ? 0.78 : 0.52,
-      fill: true,
-      fillColor: "#ef4444",
-      fillOpacity: selected ? 0.38 : 0.28,
-    };
-  }
-
   if (isUserVisited && isFriendVisited) {
     return {
       ...base,
       color: "#b45309",
-      weight: selected || selectedFriendMode ? 1.5 : 0.75,
-      opacity: selected ? 0.5 : selectedFriendMode ? 0.42 : 0.26,
+      weight: selected || selectedFriendMode ? 1.6 : 0.95,
+      opacity: selected ? 0.62 : selectedFriendMode ? 0.5 : 0.36,
       fill: true,
       fillColor: "#f59e0b",
       fillOpacity: selected ? 0.34 : selectedFriendMode ? 0.32 : 0.3,
@@ -646,8 +614,8 @@ function getCountryStyle(feature, context) {
     return {
       ...base,
       color: "#0369a1",
-      weight: selected ? 1.5 : 0.7,
-      opacity: selected ? 0.46 : 0.24,
+      weight: selected ? 1.55 : 0.9,
+      opacity: selected ? 0.58 : 0.34,
       fill: true,
       fillColor: "#38bdf8",
       fillOpacity: selected ? 0.28 : 0.24,
@@ -658,8 +626,8 @@ function getCountryStyle(feature, context) {
     return {
       ...base,
       color: "#059669",
-      weight: selected || selectedFriendMode ? 1.45 : 0.7,
-      opacity: selected ? 0.42 : selectedFriendMode ? 0.46 : 0.22,
+      weight: selected || selectedFriendMode ? 1.5 : 0.9,
+      opacity: selected ? 0.6 : selectedFriendMode ? 0.5 : 0.34,
       fill: true,
       fillColor: "#6ee7b7",
       fillOpacity: selected ? 0.24 : selectedFriendMode ? 0.3 : 0.2,
@@ -668,9 +636,9 @@ function getCountryStyle(feature, context) {
 
   return {
     ...base,
-    color: selected ? "#64748b" : "#cbd5e1",
-    weight: selected ? 1.25 : 0.45,
-    opacity: selected ? 0.34 : 0.14,
+    color: selected ? "#64748b" : "#94a3b8",
+    weight: selected ? 1.25 : 0.7,
+    opacity: selected ? 0.46 : 0.32,
     fill: true,
     fillColor: "#ffffff",
     fillOpacity: selected ? 0.08 : 0.02,
@@ -768,76 +736,6 @@ function CountrySearch({ countries, language, onSelectCountry, onMissingCountry 
   );
 }
 
-function HomeCountrySetupModal({ countryOptions, language, onSave }) {
-  const [homeCountryCode, setHomeCountryCode] = useState("");
-  const [query, setQuery] = useState("");
-  const [error, setError] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
-
-  const handleSave = async (event) => {
-    event.preventDefault();
-    const typed = query.trim().toLowerCase();
-    const selected =
-      countryOptions.find((country) => country.code === homeCountryCode) ||
-      countryOptions.find((country) => country.name.toLowerCase() === typed) ||
-      countryOptions.find((country) => country.code.toLowerCase() === typed);
-    const normalized = normalizeCountryCode(selected?.code);
-    if (!normalized) {
-      setError(t(language, "selectHomeCountryRequired"));
-      return;
-    }
-
-    setIsSaving(true);
-    setError("");
-    const result = await onSave(normalized);
-    setIsSaving(false);
-
-    if (result?.error) {
-      setError(result.error);
-    }
-  };
-
-  return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="home-country-title">
-      <form className="username-modal profile-modal" onSubmit={handleSave}>
-        <div>
-          <p className="eyebrow">{t(language, "homeCountry")}</p>
-          <h2 id="home-country-title">{t(language, "chooseHomeCountry")}</h2>
-          <p>{t(language, "chooseHomeCountryCopy")}</p>
-        </div>
-
-        <label className="field-label">
-          {t(language, "homeCountry")}
-          <input
-            value={query}
-            onChange={(event) => {
-              const nextQuery = event.target.value;
-              setQuery(nextQuery);
-              const selected = countryOptions.find((country) => country.name === nextQuery);
-              setHomeCountryCode(selected?.code || "");
-            }}
-            placeholder={t(language, "searchCountry")}
-            aria-label={t(language, "homeCountry")}
-            list="home-country-options"
-            autoFocus
-          />
-          <datalist id="home-country-options">
-            {countryOptions.map((country) => (
-              <option key={country.code} value={country.name} />
-            ))}
-          </datalist>
-        </label>
-
-        {error && <p className="form-error">{error}</p>}
-
-        <button className="primary-action" disabled={isSaving}>
-          {isSaving ? t(language, "saving") : t(language, "saveHomeCountry")}
-        </button>
-      </form>
-    </div>
-  );
-}
-
 function FriendAvatarMarkers({ geojson, friendVisitMap, onSelectCountry }) {
   const markers = useMemo(() => {
     const featureByCode = new Map();
@@ -888,7 +786,7 @@ function SmallCountryHotspots({ friendVisitMap, language, onSelectCountry, onCou
     const code = normalizeCountryCode(hotspot.code);
     const friends = friendVisitMap.get(code) || [];
     const flag = countryFlag(code);
-    const name = getCountryName(code, language);
+    const name = getCountryName(code, "en");
     const label = `${flag} ${name}${friends.length ? ` · ${friends.length}` : ""}`;
 
     return (
@@ -906,6 +804,7 @@ function SmallCountryHotspots({ friendVisitMap, language, onSelectCountry, onCou
         eventHandlers={{
           click: (event) => {
             const original = event.originalEvent || {};
+            onCountryHoverEnd?.();
             onSelectCountry({
               code,
               flag,
@@ -928,7 +827,7 @@ function SmallCountryHotspots({ friendVisitMap, language, onSelectCountry, onCou
           mouseout: () => onCountryHoverEnd?.(),
         }}
       >
-        <Tooltip direction="top" offset={[0, -8]} opacity={0.95}>
+        <Tooltip direction="top" offset={[0, -8]} opacity={0.95} interactive={false}>
           {label}
         </Tooltip>
       </CircleMarker>
@@ -970,7 +869,6 @@ function TravelMap({
   selectedCountry,
   language,
   animatedCountryCode,
-  homeCountryCode,
   onSelectCountry,
   onMarkVisited,
   onRemoveVisited,
@@ -985,24 +883,18 @@ function TravelMap({
 
   const visitedMine = visits.mineSet;
   const visitedFriend = visits.friendSet;
-  const homeCode = normalizeCountryCode(homeCountryCode);
-  const tileLayer = TILE_LAYERS[language] || TILE_LAYERS.en;
-
-  useEffect(() => {
-    console.log("Home country:", homeCode);
-  }, [homeCode]);
+  const tileLayer = TILE_LAYERS.en;
 
   const styleFeature = useCallback(
     (feature) =>
       getCountryStyle(feature, {
-        homeCountryCode: homeCode,
         selectedCountryCode: selectedCountry?.code,
         visitedMine,
         visitedFriend,
         renderer: countryRenderer,
         selectedFriendMode: Boolean(selectedFriend),
       }),
-    [countryRenderer, homeCode, selectedCountry?.code, selectedFriend, visitedFriend, visitedMine],
+    [countryRenderer, selectedCountry?.code, selectedFriend, visitedFriend, visitedMine],
   );
 
   useEffect(() => {
@@ -1134,7 +1026,7 @@ function TravelMap({
         noWrap={false}
       />
       <GeoJSON
-        key={`${visitedMine.size}-${visitedFriend.size}-${language}-${selectedFriend?.id || "all"}`}
+        key={`${visitedMine.size}-${visitedFriend.size}-${selectedFriend?.id || "all"}`}
         ref={geoJsonRef}
         data={geojson}
         style={styleFeature}
@@ -1162,15 +1054,14 @@ function CountryHoverLabel({ country, language, friendVisitMap }) {
   if (!country) return null;
 
   const code = normalizeCountryCode(country.code);
-  const displayName = getCountryName(code, language) || country.name || code;
-  const friendCount = friendVisitMap?.get?.(code)?.length || 0;
+  const displayName = getCountryName(code, "en") || country.name || code;
   const x = Math.min(Math.max((country.x || 24) + 12, 12), Math.max(12, window.innerWidth - 220));
   const y = Math.min(Math.max((country.y || 120) + 12, 12), Math.max(12, window.innerHeight - 72));
 
   return (
     <div className="country-hover-label" style={{ left: x, top: y }} aria-label={displayName}>
       <span>{country.flag || countryFlag(code)}</span>
-      <strong>{displayName}{friendCount ? ` · ${friendCount}` : ""}</strong>
+      <strong>{displayName}</strong>
     </div>
   );
 }
@@ -1181,7 +1072,6 @@ function CountryDetailCard({
   friendVisitMap,
   totalFriends,
   language,
-  homeCountryCode,
   isSaving,
   onMarkVisited,
   onRemoveVisited,
@@ -1191,10 +1081,9 @@ function CountryDetailCard({
   if (!country) return null;
 
   const code = normalizeCountryCode(country.code);
-  const isHome = Boolean(homeCountryCode && code === homeCountryCode);
   const mine = mineSet.has(code);
   const friends = friendVisitMap.get(code) || [];
-  const displayName = getCountryName(code, language) || country.name || code;
+  const displayName = getCountryName(code, "en") || country.name || code;
   const friendPercent = totalFriends ? Math.round((friends.length / totalFriends) * 100) : null;
   const x = Math.min(Math.max((country.x || 28) + 16, 12), Math.max(12, window.innerWidth - 336));
   const y = Math.min(Math.max((country.y || 132) + 16, 12), Math.max(12, window.innerHeight - 330));
@@ -1213,11 +1102,7 @@ function CountryDetailCard({
         <h2>
           {country.flag || countryFlag(code)} {displayName}
         </h2>
-        <p>
-          {isHome
-            ? t(language, "homeCountry")
-            : `${t(language, "youVisited")}: ${mine ? t(language, "yes") : t(language, "no")}`}
-        </p>
+        <p>{t(language, "youVisited")}: {mine ? t(language, "yes") : t(language, "no")}</p>
         <p>{formatText(language, "friendsVisitedCount", { count: friends.length })}</p>
         {friendPercent !== null ? (
           <p>{formatText(language, "countryVisitPercentShort", { percent: friendPercent })}</p>
@@ -1227,16 +1112,14 @@ function CountryDetailCard({
       </div>
 
       <div className="country-hover-actions">
-        {!isHome && (
-          <button
-            className={mine ? "secondary-action danger-action" : "primary-action"}
-            onClick={() => (mine ? onRemoveVisited({ code, flag: country.flag }) : onMarkVisited({ code, flag: country.flag }))}
-            disabled={isSaving}
-          >
-            <Check size={16} />
-            {mine ? t(language, "removeVisited") : t(language, "countryVisited")}
-          </button>
-        )}
+        <button
+          className={mine ? "secondary-action danger-action" : "primary-action"}
+          onClick={() => (mine ? onRemoveVisited({ code, flag: country.flag }) : onMarkVisited({ code, flag: country.flag }))}
+          disabled={isSaving}
+        >
+          <Check size={16} />
+          {mine ? t(language, "removeVisited") : t(language, "countryVisited")}
+        </button>
         <button className="secondary-action" onClick={() => onOpenCommunity({ code, flag: country.flag, name: displayName })}>
           <MessageCircle size={16} />
           {t(language, "communityOpen")}
@@ -1250,7 +1133,7 @@ function CountryDetailCard({
             {friends.map((friend) => (
               <li key={friend.id}>
                 <Avatar user={friend} size="sm" />
-                <span>{friend.username}</span>
+                <span>{getDisplayName(friend, language)}</span>
               </li>
             ))}
           </ul>
@@ -1262,7 +1145,7 @@ function CountryDetailCard({
   );
 }
 
-function FriendPanel({ friends, friendQuery, setFriendQuery, language, onAddFriend, isAdding }) {
+function FriendPanel({ friends, friendQuery, setFriendQuery, language, onAddFriend, onSaveNickname, isAdding }) {
   return (
     <aside className="side-panel">
       <div className="panel-heading">
@@ -1286,8 +1169,17 @@ function FriendPanel({ friends, friendQuery, setFriendQuery, language, onAddFrie
         <ul className="simple-list friend-list">
           {friends.map((friend) => (
             <li key={friend.id}>
-              <Avatar user={friend} size="sm" />
-              {friend.username}
+              <span className="friend-list-person">
+                <Avatar user={friend} size="sm" />
+                <span>{getDisplayName(friend, language)}</span>
+              </span>
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => onSaveNickname(friend)}
+              >
+                {t(language, "editNickname")}
+              </button>
             </li>
           ))}
         </ul>
@@ -1354,10 +1246,10 @@ function FriendMapRow({ profile, friends, selectedFriendId, language, onSelectFr
           key={friend.id}
           className={`friend-story-chip ${selectedFriendId === friend.id ? "is-selected" : ""}`}
           onClick={() => onSelectFriend(friend.id)}
-          title={friend.username || t(language, "friendFallback")}
+          title={getDisplayName(friend, language)}
         >
           <Avatar user={friend} size="md" />
-          <span>{friend.username || t(language, "friendFallback")}</span>
+          <span>{getDisplayName(friend, language)}</span>
         </button>
       ))}
     </div>
@@ -1372,12 +1264,9 @@ function SelectedFriendPanel({ friend, visitCount, language, onClear }) {
         <Avatar user={friend} size="md" />
         <div>
           <p className="eyebrow">{t(language, "friendSelected")}</p>
-          <h2>{friend.username || t(language, "friendFallback")}</h2>
+          <h2>{getDisplayName(friend, language)}</h2>
           <p>
             {visitCount} {t(language, "countriesVisited")}
-          </p>
-          <p className="profile-home-line">
-            {getHomeCountryDisplay(friend, language) || `🏳 ${t(language, "noHomeCountry")}`}
           </p>
         </div>
       </div>
@@ -1389,7 +1278,6 @@ function SelectedFriendPanel({ friend, visitCount, language, onClear }) {
 }
 
 function ProfilePanel({ profile, language }) {
-  const homeCountryDisplay = getHomeCountryDisplay(profile, language);
   return (
     <aside className="side-panel profile-card">
       <div className="panel-heading">
@@ -1400,9 +1288,6 @@ function ProfilePanel({ profile, language }) {
               {t(language, "profile")} {profile?.is_admin && <span className="admin-badge">{t(language, "admin")}</span>}
             </h2>
             <p>{profile?.username || t(language, "profileLoading")}</p>
-            <p className="profile-home-line">
-              {homeCountryDisplay || `🏳 ${t(language, "noHomeCountry")}`}
-            </p>
           </div>
         </div>
       </div>
@@ -1423,7 +1308,7 @@ function LeaderboardPanel({ leaderboard, language }) {
             <li key={entry.id}>
               <span className="leaderboard-rank">{index + 1}</span>
               <Avatar user={entry} size="sm" />
-              <span className="leaderboard-name">{entry.username}</span>
+              <span className="leaderboard-name">{getDisplayName(entry, language)}</span>
               <span className="leaderboard-count">{entry.visitCount}</span>
             </li>
           ))}
@@ -1508,20 +1393,14 @@ function UsernameSetupModal({ language, onSave }) {
   );
 }
 
-function ProfileSettingsModal({ profile, language, countryOptions = [], onClose, onSave, onUploadAvatar }) {
+function ProfileSettingsModal({ profile, language, onClose, onSave, onUploadAvatar }) {
   const [username, setUsername] = useState(profile?.username || "");
   const [selectedLanguage, setSelectedLanguage] = useState(language);
-  const [homeCountryCode, setHomeCountryCode] = useState(profile?.home_country_code || "");
   const [error, setError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
 
   const normalized = normalizeUsername(username);
-  const homeCountryDisplay = getHomeCountryDisplay(
-    { ...profile, home_country_code: homeCountryCode || profile?.home_country_code },
-    language,
-  );
-
   const handleSave = async (event) => {
     event.preventDefault();
     setError("");
@@ -1531,13 +1410,8 @@ function ProfileSettingsModal({ profile, language, countryOptions = [], onClose,
       return;
     }
 
-    if (!homeCountryCode) {
-      setError(t(language, "selectHomeCountryRequired"));
-      return;
-    }
-
     setIsSaving(true);
-    const result = await onSave(normalized, selectedLanguage, homeCountryCode);
+    const result = await onSave(normalized, selectedLanguage);
     setIsSaving(false);
 
     if (result?.error) {
@@ -1590,7 +1464,6 @@ function ProfileSettingsModal({ profile, language, countryOptions = [], onClose,
           <div className="profile-summary">
             <span>{t(language, "currentUsername")}</span>
             <strong>{profile.username || t(language, "notSet")}</strong>
-            <small>{homeCountryDisplay || t(language, "noHomeCountry")}</small>
           </div>
           <label className="secondary-action">
             <ImagePlus size={17} />
@@ -1624,22 +1497,6 @@ function ProfileSettingsModal({ profile, language, countryOptions = [], onClose,
           </select>
         </label>
 
-        <label className="field-label">
-          {t(language, "homeCountry")}
-          <select
-            value={homeCountryCode || ""}
-            onChange={(event) => setHomeCountryCode(event.target.value)}
-            aria-label={t(language, "homeCountry")}
-          >
-            <option value="">{t(language, "selectHomeCountryRequired")}</option>
-            {countryOptions.map((country) => (
-              <option key={country.code} value={country.code}>
-                {country.flag} {country.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
         {error && <p className="form-error">{error}</p>}
 
         <button className="primary-action" disabled={isSaving || isUploading}>
@@ -1662,7 +1519,7 @@ function ActivityFeed({ activities, language, compact = false }) {
           {activities.map((activity) => (
             <li key={activity.id}>
               <Avatar user={activity.profiles} size="sm" />
-              <span>{activity.profiles?.username || t(language, "friendFallback")}</span>
+              <span>{getDisplayName(activity.profiles, language)}</span>
               <span>
                 {t(language, "visitedVerb")} {countryFlag(activity.country_code)}{" "}
                 {getCountryName(activity.country_code, language)}
@@ -1740,14 +1597,9 @@ function NotificationMenu({ activities, friendRequests, language, isOpen, hasUnr
   );
 }
 
-function CountryCollectionModal({ countriesByContinent, mineSet, homeCountryCode, language, onClose }) {
+function CountryCollectionModal({ countriesByContinent, mineSet, language, onClose }) {
   const totalVisited = CONTINENT_ORDER.reduce((sum, continent) => {
-    return (
-      sum +
-      countriesByContinent[continent].filter(
-        (country) => mineSet.has(country.code) || country.code === homeCountryCode,
-      ).length
-    );
+    return sum + countriesByContinent[continent].filter((country) => mineSet.has(country.code)).length;
   }, 0);
   const totalCountries = CONTINENT_ORDER.reduce((sum, continent) => {
     return sum + countriesByContinent[continent].length;
@@ -1772,9 +1624,7 @@ function CountryCollectionModal({ countriesByContinent, mineSet, homeCountryCode
         <div className="continent-list">
           {CONTINENT_ORDER.map((continent) => {
             const countriesForContinent = countriesByContinent[continent];
-            const visited = countriesForContinent.filter(
-              (country) => mineSet.has(country.code) || country.code === homeCountryCode,
-            ).length;
+            const visited = countriesForContinent.filter((country) => mineSet.has(country.code)).length;
             const total = countriesForContinent.length;
 
             return (
@@ -1789,7 +1639,7 @@ function CountryCollectionModal({ countriesByContinent, mineSet, homeCountryCode
                 </div>
                 <div className="country-chip-grid">
                   {countriesForContinent.map((country) => {
-                    const visitedCountry = mineSet.has(country.code) || country.code === homeCountryCode;
+                    const visitedCountry = mineSet.has(country.code);
                     return (
                       <span className={`country-chip ${visitedCountry ? "is-visited" : ""}`} key={country.code}>
                         {country.flag} {country.name}
@@ -1822,7 +1672,6 @@ function CommunityModal({
   isPosting,
   replyingPostId,
   language,
-  homeCountryCode,
   mineSet,
   authorVisitedMap,
   onSelectCountry,
@@ -1845,7 +1694,7 @@ function CommunityModal({
 
   const boardCountry = selectedCountry || countries[0];
   const boardCode = normalizeCountryCode(boardCountry?.code);
-  const myRole = getCommunityRole({ countryCode: boardCode, homeCountryCode, visitedSet: mineSet });
+  const myRole = getCommunityRole({ countryCode: boardCode, visitedSet: mineSet });
   const selectedPost = posts.find((post) => post.id === selectedPostId) || null;
 
   const matches = useMemo(() => {
@@ -2024,7 +1873,6 @@ function CommunityModal({
               const authorVisits = authorVisitedMap.get(post.user_id) || new Set();
               const role = getCommunityRole({
                 countryCode: boardCode,
-                homeCountryCode: author.home_country_code,
                 visitedSet: authorVisits,
               });
               return (
@@ -2055,7 +1903,6 @@ function CommunityModal({
             author={selectedPost.profiles || {}}
             role={getCommunityRole({
               countryCode: boardCode,
-              homeCountryCode: selectedPost.profiles?.home_country_code,
               visitedSet: authorVisitedMap.get(selectedPost.user_id) || new Set(),
             })}
             voteSummary={voteSummaryByPost.get(selectedPost.id) || { score: 0, myVote: "" }}
@@ -2551,7 +2398,6 @@ function AdminManagementModal({ users, currentUserId, language, isLoading, onTog
                     {user.username || t(language, "friendFallback")}{" "}
                     {user.is_admin && <span className="admin-badge compact-badge">{t(language, "admin")}</span>}
                   </strong>
-                  <span>{getHomeCountryDisplay(user, language) || `🏳 ${t(language, "noHomeCountry")}`}</span>
                 </div>
                 <span className="admin-visit-count">
                   {user.visitCount} {t(language, "countriesVisited")}
@@ -2576,7 +2422,6 @@ function AdminManagementModal({ users, currentUserId, language, isLoading, onTog
               <Avatar user={selectedUser} size="md" />
               <div>
                 <h3>{selectedUser.username || t(language, "friendFallback")}</h3>
-                <p>{getHomeCountryDisplay(selectedUser, language) || `🏳 ${t(language, "noHomeCountry")}`}</p>
                 <p>
                   {selectedUser.visitCount} {t(language, "countriesVisited")}
                 </p>
@@ -2646,7 +2491,6 @@ function App() {
   const hoverHideTimer = useRef(null);
 
   const language = getLanguage(profile);
-  const homeCountryCode = normalizeCountryCode(profile?.home_country_code);
 
   const countryNames = useMemo(() => {
     const map = new Map();
@@ -2685,12 +2529,11 @@ function App() {
 
   const defaultCommunityCountry = useMemo(() => {
     return (
-      countryOptions.find((country) => country.code === homeCountryCode) ||
       countryOptions.find((country) => country.code === selectedCountry?.code) ||
       countryOptions[0] ||
       null
     );
-  }, [countryOptions, homeCountryCode, selectedCountry?.code]);
+  }, [countryOptions, selectedCountry?.code]);
 
   const selectedFriend = useMemo(
     () => friends.find((friend) => friend.id === selectedFriendId) || null,
@@ -2705,28 +2548,22 @@ function App() {
         .map((visit) => normalizeCountryCode(visit.country_code))
         .filter(Boolean),
     );
-    const selected = friends.find((friend) => friend.id === selectedFriendId);
-    const home = normalizeCountryCode(selected?.home_country_code);
-    if (home) codes.add(home);
     return codes;
-  }, [friendVisits, friends, selectedFriendId]);
+  }, [friendVisits, selectedFriendId]);
 
   const visitState = useMemo(() => {
     const mineSet = new Set(
       mineVisits
         .map((visit) => normalizeCountryCode(visit.country_code))
-        .filter((code) => code && code !== homeCountryCode),
+        .filter(Boolean),
     );
     const friendSet = selectedFriendId
       ? selectedFriendVisitSet
-      : new Set([
-          ...friendVisits.map((visit) => normalizeCountryCode(visit.country_code)),
-          ...friends.map((friend) => normalizeCountryCode(friend.home_country_code)).filter(Boolean),
-        ]);
+      : new Set(friendVisits.map((visit) => normalizeCountryCode(visit.country_code)).filter(Boolean));
     return { mineSet, friendSet };
-  }, [friendVisits, friends, homeCountryCode, mineVisits, selectedFriendId, selectedFriendVisitSet]);
+  }, [friendVisits, mineVisits, selectedFriendId, selectedFriendVisitSet]);
 
-  const displayedVisitCount = visitState.mineSet.size + (homeCountryCode ? 1 : 0);
+  const displayedVisitCount = visitState.mineSet.size;
 
   const friendVisitMap = useMemo(() => {
     const friendById = new Map(friends.map((friend) => [friend.id, friend]));
@@ -2735,15 +2572,6 @@ function App() {
       const code = normalizeCountryCode(visit.country_code);
       const friend = friendById.get(visit.user_id);
       if (!friend) return;
-      const current = map.get(code) || [];
-      if (!current.some((item) => item.id === friend.id)) {
-        current.push(friend);
-      }
-      map.set(code, current);
-    });
-    friends.forEach((friend) => {
-      const code = normalizeCountryCode(friend.home_country_code);
-      if (!code) return;
       const current = map.get(code) || [];
       if (!current.some((item) => item.id === friend.id)) {
         current.push(friend);
@@ -2806,20 +2634,19 @@ function App() {
           .filter((visit) => visit.user_id === friend.id)
           .map((visit) => normalizeCountryCode(visit.country_code)),
       );
-      const friendHome = normalizeCountryCode(friend.home_country_code);
-      if (friendHome) friendCodes.add(friendHome);
       entries.push({
         ...friend,
         username: friend.username || "Friend",
+        display_name: getDisplayName(friend, language),
         visitCount: friendCodes.size,
       });
     });
 
     return entries.sort((a, b) => {
       if (b.visitCount !== a.visitCount) return b.visitCount - a.visitCount;
-      return a.username.localeCompare(b.username);
+      return getDisplayName(a, language).localeCompare(getDisplayName(b, language));
     });
-  }, [displayedVisitCount, friendVisits, friends, profile]);
+  }, [displayedVisitCount, friendVisits, friends, language, profile]);
 
   const communityRepliesByPost = useMemo(() => {
     const map = new Map();
@@ -2901,21 +2728,40 @@ function App() {
 
     console.log("[travel-map] authenticated user id", userId);
 
-    const [{ data: myData }, { data: friendRows }, { data: requestRows, error: requestError }] = await Promise.all([
+    const [
+      { data: myData },
+      { data: friendRows },
+      { data: nicknameRows, error: nicknameError },
+      { data: requestRows, error: requestError },
+    ] = await Promise.all([
       supabase.from("visited_countries").select("*").eq("user_id", userId),
       supabase
         .from("friends")
-        .select("friend_id, friend:profiles!friends_friend_id_fkey(id, username, avatar_url, home_country_code, is_admin)")
+        .select("friend_id, friend:profiles!friends_friend_id_fkey(id, username, avatar_url, is_admin)")
         .eq("user_id", userId),
+      supabase.from("friend_nicknames").select("friend_id, nickname").eq("user_id", userId),
       supabase
         .from("friend_requests")
-        .select("*, sender:profiles!friend_requests_sender_id_fkey(id, username, avatar_url, home_country_code, is_admin), receiver:profiles!friend_requests_receiver_id_fkey(id, username, avatar_url, home_country_code, is_admin)")
+        .select("*, sender:profiles!friend_requests_sender_id_fkey(id, username, avatar_url, is_admin), receiver:profiles!friend_requests_receiver_id_fkey(id, username, avatar_url, is_admin)")
         .eq("receiver_id", userId)
         .eq("status", "pending")
         .order("created_at", { ascending: false }),
     ]);
 
-    const friendProfiles = (friendRows || []).map((row) => row.friend).filter(Boolean);
+    const nicknameByFriendId = new Map(
+      (nicknameError ? [] : nicknameRows || []).map((row) => [row.friend_id, row.nickname || ""]),
+    );
+    const friendProfiles = (friendRows || [])
+      .map((row) => row.friend)
+      .filter(Boolean)
+      .map((friend) => {
+        const nickname = nicknameByFriendId.get(friend.id) || "";
+        return {
+          ...friend,
+          friend_nickname: nickname,
+          display_name: nickname || friend.username,
+        };
+      });
     const friendIds = friendProfiles.map((friend) => friend.id);
 
     console.log("[travel-map] fetched visited countries count", myData?.length || 0);
@@ -2941,11 +2787,16 @@ function App() {
     ]);
 
     setFriendVisits(friendVisitData || []);
+    const friendById = new Map(friendProfiles.map((friend) => [friend.id, friend]));
     setActivities(
-      (activityData || []).map((activity) => ({
-        ...activity,
-        country_name: countryNames.get(normalizeCountryCode(activity.country_code)) || activity.country_code,
-      })),
+      (activityData || []).map((activity) => {
+        const friend = friendById.get(activity.user_id);
+        return {
+          ...activity,
+          profiles: friend ? { ...(activity.profiles || {}), ...friend } : activity.profiles,
+          country_name: countryNames.get(normalizeCountryCode(activity.country_code)) || activity.country_code,
+        };
+      }),
     );
   }, [countryNames, session?.user?.id]);
 
@@ -2953,21 +2804,15 @@ function App() {
     const userId = session?.user?.id;
     if (!supabase || !userId) return;
 
-    const [{ data: profileRows, error: profileStatsError }, { count: totalVisitRecords }, { data: visitRows }] = await Promise.all([
-      supabase.from("profiles").select("id, home_country_code"),
+    const [{ data: profileRows }, { count: totalVisitRecords }, { data: visitRows }] = await Promise.all([
+      supabase.from("profiles").select("id"),
       supabase.from("visited_countries").select("id", { count: "exact", head: true }),
       supabase.from("visited_countries").select("user_id, country_code"),
     ]);
-    if (isMissingHomeCountryColumnError(profileStatsError)) {
-      setNotice(t(language, "databaseSetupRequired"));
-    }
 
     const userVisitCounts = new Map();
     (profileRows || []).forEach((profileRow) => {
-      const codes = new Set();
-      const homeCode = normalizeCountryCode(profileRow.home_country_code);
-      if (homeCode) codes.add(homeCode);
-      userVisitCounts.set(profileRow.id, codes);
+      userVisitCounts.set(profileRow.id, new Set());
     });
     (visitRows || []).forEach((visit) => {
       const code = normalizeCountryCode(visit.country_code);
@@ -3040,29 +2885,7 @@ function App() {
 
   useEffect(() => {
     refreshGlobalStats();
-  }, [homeCountryCode, refreshGlobalStats, mineVisits.length]);
-
-  useEffect(() => {
-    const userId = session?.user?.id;
-    if (!supabase || !userId || !homeCountryCode) return;
-
-    const hasHomeInVisits = mineVisits.some(
-      (visit) => normalizeCountryCode(visit.country_code) === homeCountryCode,
-    );
-    if (!hasHomeInVisits) return;
-
-    setMineVisits((current) =>
-      current.filter((visit) => normalizeCountryCode(visit.country_code) !== homeCountryCode),
-    );
-    supabase
-      .from("visited_countries")
-      .delete()
-      .eq("user_id", userId)
-      .eq("country_code", homeCountryCode)
-      .then(({ error }) => {
-        if (error) setNotice(error.message);
-      });
-  }, [homeCountryCode, mineVisits, session?.user?.id]);
+  }, [refreshGlobalStats, mineVisits.length]);
 
   const handleMarkVisited = useCallback(
     async (country) => {
@@ -3071,7 +2894,6 @@ function App() {
         !supabase ||
         !userId ||
         !country?.code ||
-        country.code === homeCountryCode ||
         visitState.mineSet.has(country.code)
       ) {
         return;
@@ -3112,7 +2934,7 @@ function App() {
       window.setTimeout(() => setAnimatedCountryCode(""), 720);
       refreshSocialData();
     },
-    [homeCountryCode, refreshSocialData, session?.user?.id, visitState.mineSet],
+    [refreshSocialData, session?.user?.id, visitState.mineSet],
   );
 
   const handleRemoveVisited = useCallback(
@@ -3266,13 +3088,68 @@ function App() {
     setFriendRequests((current) => current.filter((item) => item.id !== request.id));
   };
 
+  const handleSaveFriendNickname = async (friend) => {
+    const userId = session?.user?.id;
+    if (!supabase || !userId || !friend?.id) return;
+
+    const currentNickname = friend.friend_nickname || "";
+    const nextNickname = window.prompt(t(language, "nicknamePrompt"), currentNickname);
+    if (nextNickname === null) return;
+
+    const cleanNickname = nextNickname.trim().slice(0, 30);
+    const previousFriends = friends;
+    const applyNickname = (items) =>
+      items.map((item) =>
+        item.id === friend.id
+          ? {
+              ...item,
+              friend_nickname: cleanNickname,
+              display_name: cleanNickname || item.username,
+            }
+          : item,
+      );
+
+    setFriends(applyNickname);
+
+    const result = cleanNickname
+      ? await supabase
+          .from("friend_nicknames")
+          .upsert(
+            { user_id: userId, friend_id: friend.id, nickname: cleanNickname },
+            { onConflict: "user_id,friend_id" },
+          )
+      : await supabase.from("friend_nicknames").delete().eq("user_id", userId).eq("friend_id", friend.id);
+
+    if (result.error) {
+      setFriends(previousFriends);
+      setNotice(result.error.message);
+      return;
+    }
+
+    setActivities((current) =>
+      current.map((activity) =>
+        activity.user_id === friend.id
+          ? {
+              ...activity,
+              profiles: {
+                ...(activity.profiles || {}),
+                friend_nickname: cleanNickname,
+                display_name: cleanNickname || activity.profiles?.username,
+              },
+            }
+          : activity,
+      ),
+    );
+    setNotice(t(language, "nicknameSaved"));
+  };
+
   const loadAdminUsers = useCallback(async () => {
     if (!supabase || !profile?.is_admin) return;
     setIsLoadingAdminUsers(true);
     const [{ data: userRows, error: userError }, { data: visitRows }] = await Promise.all([
       supabase
         .from("profiles")
-        .select("id, username, avatar_url, home_country_code, is_admin")
+        .select("id, username, avatar_url, is_admin")
         .order("username", { ascending: true }),
       supabase.from("visited_countries").select("user_id, country_code"),
     ]);
@@ -3294,7 +3171,7 @@ function App() {
       (userRows || []).map((user) => ({
         ...user,
         visitedCodes: Array.from(visitCounts.get(user.id) || new Set()).sort(),
-        visitCount: (visitCounts.get(user.id) || new Set()).size + (user.home_country_code ? 1 : 0),
+        visitCount: (visitCounts.get(user.id) || new Set()).size,
       })),
     );
     setIsLoadingAdminUsers(false);
@@ -3360,12 +3237,12 @@ function App() {
       setHoveredCountry({
         code,
         flag: country.flag || countryFlag(code),
-        name: getCountryName(code, language),
+        name: getCountryName(code, "en"),
         x: country.x,
         y: country.y,
       });
     },
-    [language],
+    [],
   );
 
   const scheduleCountryHoverClose = useCallback(() => {
@@ -3383,7 +3260,7 @@ function App() {
       setIsCommunityLoading(true);
       const { data, error } = await supabase
         .from("community_posts")
-        .select("*, profiles!community_posts_user_id_fkey(id, username, avatar_url, home_country_code, is_admin)")
+        .select("*, profiles!community_posts_user_id_fkey(id, username, avatar_url, is_admin)")
         .eq("country_code", boardCode)
         .order("created_at", { ascending: false })
         .limit(50);
@@ -3506,7 +3383,7 @@ function App() {
           body,
           image_url: imageUrl,
         })
-        .select("*, profiles!community_posts_user_id_fkey(id, username, avatar_url, home_country_code, is_admin)")
+        .select("*, profiles!community_posts_user_id_fkey(id, username, avatar_url, is_admin)")
         .single();
 
       setIsPostingCommunity(false);
@@ -3582,7 +3459,7 @@ function App() {
         })
         .eq("id", post.id)
         .eq("user_id", userId)
-        .select("*, profiles!community_posts_user_id_fkey(id, username, avatar_url, home_country_code, is_admin)")
+        .select("*, profiles!community_posts_user_id_fkey(id, username, avatar_url, is_admin)")
         .single();
 
       if (error && isMissingCommunityPostsError(error)) {
@@ -3595,7 +3472,7 @@ function App() {
           })
           .eq("id", post.id)
           .eq("user_id", userId)
-          .select("*, profiles!community_posts_user_id_fkey(id, username, avatar_url, home_country_code, is_admin)")
+          .select("*, profiles!community_posts_user_id_fkey(id, username, avatar_url, is_admin)")
           .single();
         data = fallback.data ? { ...fallback.data, updated_at: updatedAt } : fallback.data;
         error = fallback.error;
@@ -3836,7 +3713,7 @@ function App() {
     }
   }, [communityCountry, defaultCommunityCountry, isCommunityOpen, refreshCommunityPosts]);
 
-  const handleSaveUsername = async (username, nextLanguage, nextHomeCountryCode) => {
+  const handleSaveUsername = async (username, nextLanguage) => {
     const userId = session?.user?.id;
     if (!supabase || !userId) return { error: t(language, "profileStillLoading") };
 
@@ -3850,18 +3727,10 @@ function App() {
       return { error: t(language, "usernameTaken") };
     }
 
-    const shouldUpdateHomeCountry = nextHomeCountryCode !== undefined;
-    const resolvedHomeCountryCode = shouldUpdateHomeCountry
-      ? normalizeCountryCode(nextHomeCountryCode)
-      : homeCountryCode;
     const updates = {
       username,
       language: nextLanguage || language,
     };
-
-    if (shouldUpdateHomeCountry) {
-      updates.home_country_code = resolvedHomeCountryCode || null;
-    }
 
     let { data, error } = await supabase
       .from("profiles")
@@ -3869,21 +3738,6 @@ function App() {
       .eq("id", userId)
       .select("*")
       .single();
-
-    if (error && isMissingHomeCountryColumnError(error) && shouldUpdateHomeCountry) {
-      return { error: t(language, "databaseSetupRequired") };
-    }
-
-    if (error && isMissingHomeCountryColumnError(error)) {
-      const fallback = await supabase
-        .from("profiles")
-        .update({ username, language: nextLanguage || language })
-        .eq("id", userId)
-        .select("*")
-        .single();
-      data = fallback.data;
-      error = fallback.error;
-    }
 
     if (error && String(error.message || "").includes("language")) {
       const fallback = await supabase
@@ -3906,60 +3760,11 @@ function App() {
       id: userId,
       username,
       language: nextLanguage || language,
-      home_country_code: data?.home_country_code ?? resolvedHomeCountryCode ?? profile?.home_country_code ?? null,
     };
 
     setProfile(updatedProfile);
-    if (shouldUpdateHomeCountry && resolvedHomeCountryCode) {
-      setMineVisits((current) =>
-        current.filter((visit) => normalizeCountryCode(visit.country_code) !== resolvedHomeCountryCode),
-      );
-      await supabase
-        .from("visited_countries")
-        .delete()
-        .eq("user_id", userId)
-        .eq("country_code", resolvedHomeCountryCode);
-    }
     setNotice("");
     return { data: updatedProfile };
-  };
-
-  const handleSaveHomeCountry = async (nextHomeCountryCode) => {
-    const userId = session?.user?.id;
-    const resolvedHomeCountryCode = normalizeCountryCode(nextHomeCountryCode);
-    if (!supabase || !userId) return { error: t(language, "profileStillLoading") };
-    if (!resolvedHomeCountryCode) return { error: t(language, "selectHomeCountryRequired") };
-
-    const { data, error } = await supabase
-      .from("profiles")
-      .update({ home_country_code: resolvedHomeCountryCode })
-      .eq("id", userId)
-      .select("*")
-      .single();
-
-    if (error) {
-      return {
-        error: isMissingHomeCountryColumnError(error) ? t(language, "databaseSetupRequired") : error.message,
-      };
-    }
-
-    setProfile((current) => ({
-      ...(current || {}),
-      ...(data || {}),
-      id: userId,
-      home_country_code: data?.home_country_code ?? resolvedHomeCountryCode,
-    }));
-    setMineVisits((current) =>
-      current.filter((visit) => normalizeCountryCode(visit.country_code) !== resolvedHomeCountryCode),
-    );
-    await supabase
-      .from("visited_countries")
-      .delete()
-      .eq("user_id", userId)
-      .eq("country_code", resolvedHomeCountryCode);
-    refreshSocialData();
-
-    return { data };
   };
 
   const handleUploadAvatar = async (file) => {
@@ -4014,7 +3819,6 @@ function App() {
       ...(profile || {}),
       ...(data || {}),
       id: userId,
-      home_country_code: data?.home_country_code ?? profile?.home_country_code ?? null,
     };
     setProfile(updatedProfile);
     return { data: updatedProfile };
@@ -4118,15 +3922,7 @@ function App() {
         </button>
       )}
 
-      {profile && !homeCountryCode && countryOptions.length > 0 && (
-        <HomeCountrySetupModal
-          countryOptions={countryOptions}
-          language={language}
-          onSave={handleSaveHomeCountry}
-        />
-      )}
-
-      {profile && homeCountryCode && !isValidUsername(profile.username || "") && (
+      {profile && !isValidUsername(profile.username || "") && (
         <UsernameSetupModal language={language} onSave={handleSaveUsername} />
       )}
 
@@ -4134,7 +3930,6 @@ function App() {
         <ProfileSettingsModal
           profile={profile}
           language={language}
-          countryOptions={countryOptions}
           onClose={() => setIsProfileOpen(false)}
           onSave={handleSaveUsername}
           onUploadAvatar={handleUploadAvatar}
@@ -4145,7 +3940,6 @@ function App() {
         <CountryCollectionModal
           countriesByContinent={countriesByContinent}
           mineSet={visitState.mineSet}
-          homeCountryCode={homeCountryCode}
           language={language}
           onClose={() => setIsCountryCollectionOpen(false)}
         />
@@ -4192,7 +3986,6 @@ function App() {
           isPosting={isPostingCommunity}
           replyingPostId={replyingPostId}
           language={language}
-          homeCountryCode={homeCountryCode}
           mineSet={visitState.mineSet}
           authorVisitedMap={communityAuthorVisits}
           onSelectCountry={setCommunityCountry}
@@ -4233,7 +4026,6 @@ function App() {
               selectedCountry={selectedCountry}
               language={language}
               animatedCountryCode={animatedCountryCode}
-              homeCountryCode={homeCountryCode}
               onSelectCountry={setSelectedCountry}
               onMarkVisited={handleMarkVisited}
               onRemoveVisited={handleRemoveVisited}
@@ -4255,7 +4047,6 @@ function App() {
             friendVisitMap={friendVisitMap}
             totalFriends={friends.length}
             language={language}
-            homeCountryCode={homeCountryCode}
             isSaving={isSavingVisit}
             onMarkVisited={handleMarkVisited}
             onRemoveVisited={handleRemoveVisited}
@@ -4280,6 +4071,7 @@ function App() {
               setFriendQuery={setFriendQuery}
               language={language}
               onAddFriend={handleAddFriend}
+              onSaveNickname={handleSaveFriendNickname}
               isAdding={isAddingFriend}
             />
           )}
