@@ -161,6 +161,8 @@ const TEXT = {
     usernameSetupTitle: "Choose a username",
     usernameSetupCopy: "Friends will find you by this name.",
     usernameRules: "Use 3-20 lowercase letters, numbers, or underscores.",
+    inappropriateName: "That name is not allowed. Please choose a respectful name.",
+    blockedDisplayName: "Traveler",
     saveUsername: "Save username",
     visited: "Visited",
     both: "Both",
@@ -303,6 +305,8 @@ const TEXT = {
     usernameSetupTitle: "사용자명 만들기",
     usernameSetupCopy: "친구들이 이 이름으로 나를 찾을 수 있어요.",
     usernameRules: "3-20자의 소문자, 숫자, 밑줄만 사용할 수 있습니다.",
+    inappropriateName: "사용할 수 없는 이름입니다. 다른 이름을 선택해 주세요.",
+    blockedDisplayName: "여행자",
     saveUsername: "사용자명 저장",
     visited: "방문 완료",
     both: "공통",
@@ -350,6 +354,39 @@ const SMALL_COUNTRY_HOTSPOTS = [
   { code: "VC", lat: 12.9843, lng: -61.2872 },
 ];
 const SMALL_COUNTRY_CODES = new Set(SMALL_COUNTRY_HOTSPOTS.map((country) => country.code));
+const BLOCKED_NAME_TERMS = [
+  "fuck",
+  "shit",
+  "bitch",
+  "asshole",
+  "dick",
+  "pussy",
+  "cunt",
+  "nigger",
+  "nigga",
+  "faggot",
+  "retard",
+  "slut",
+  "whore",
+  "sex",
+  "porn",
+  "porno",
+  "xxx",
+  "씨발",
+  "시발",
+  "ㅅㅂ",
+  "병신",
+  "ㅂㅅ",
+  "지랄",
+  "개새끼",
+  "새끼",
+  "좆",
+  "존나",
+  "보지",
+  "자지",
+  "섹스",
+  "야동",
+];
 
 function FitWorld() {
   const map = useMap();
@@ -383,6 +420,26 @@ function normalizeUsername(value) {
 
 function isValidUsername(value) {
   return /^[a-z0-9_]{3,20}$/.test(value);
+}
+
+function normalizeNameForSafety(value) {
+  return String(value || "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replaceAll("0", "o")
+    .replaceAll("1", "i")
+    .replaceAll("3", "e")
+    .replaceAll("4", "a")
+    .replaceAll("5", "s")
+    .replaceAll("7", "t")
+    .replace(/[@$!|]/g, (char) => ({ "@": "a", "$": "s", "!": "i", "|": "i" })[char] || char)
+    .replace(/[^a-z가-힣ㄱ-ㅎㅏ-ㅣ]/g, "");
+}
+
+function isUnsafeName(value) {
+  const normalized = normalizeNameForSafety(value);
+  if (!normalized) return false;
+  return BLOCKED_NAME_TERMS.some((term) => normalized.includes(normalizeNameForSafety(term)));
 }
 
 function avatarLetter(username) {
@@ -444,7 +501,8 @@ function percent(value, total) {
 }
 
 function getDisplayName(user, language = DEFAULT_LANGUAGE) {
-  return user?.display_name || user?.friend_nickname || user?.username || t(language, "friendFallback");
+  const displayName = user?.display_name || user?.friend_nickname || user?.username || t(language, "friendFallback");
+  return isUnsafeName(displayName) ? t(language, "blockedDisplayName") : displayName;
 }
 
 function getCommunityRole({ countryCode, visitedSet }) {
@@ -482,7 +540,7 @@ function escapeHtml(value) {
 }
 
 function Avatar({ user, size = "md" }) {
-  const username = user?.display_name || user?.friend_nickname || user?.username || "Traveler";
+  const username = getDisplayName(user);
 
   return user?.avatar_url ? (
     <img className={`avatar avatar-${size}`} src={user.avatar_url} alt={`${username} avatar`} />
@@ -1353,6 +1411,10 @@ function UsernameSetupModal({ language, onSave }) {
       setError(t(language, "usernameRules"));
       return;
     }
+    if (isUnsafeName(normalized)) {
+      setError(t(language, "inappropriateName"));
+      return;
+    }
 
     setIsSaving(true);
     const result = await onSave(normalized);
@@ -1400,6 +1462,10 @@ function ProfileSettingsModal({ profile, language, onClose, onSave, onUploadAvat
 
     if (!isValidUsername(normalized)) {
       setError(t(language, "usernameRules"));
+      return;
+    }
+    if (isUnsafeName(normalized)) {
+      setError(t(language, "inappropriateName"));
       return;
     }
 
@@ -3080,6 +3146,10 @@ function App() {
     if (nextNickname === null) return;
 
     const cleanNickname = nextNickname.trim().slice(0, 30);
+    if (cleanNickname && isUnsafeName(cleanNickname)) {
+      setNotice(t(language, "inappropriateName"));
+      return;
+    }
     const previousFriends = friends;
     const applyNickname = (items) =>
       items.map((item) =>
@@ -3674,6 +3744,7 @@ function App() {
   const handleSaveUsername = async (username, nextLanguage) => {
     const userId = session?.user?.id;
     if (!supabase || !userId) return { error: t(language, "profileStillLoading") };
+    if (isUnsafeName(username)) return { error: t(language, "inappropriateName") };
 
     const { data: existing } = await supabase
       .from("profiles")
