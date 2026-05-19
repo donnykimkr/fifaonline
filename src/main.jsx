@@ -388,7 +388,10 @@ const TEXT = {
   },
 };
 const SMALL_COUNTRY_HOTSPOTS = [
-  { code: "MO", lat: 22.1987, lng: 113.5439 },
+  { code: "HK", lat: 22.43, lng: 114.28 },
+  { code: "MO", lat: 21.92, lng: 113.2 },
+  { code: "IL", lat: 31.25, lng: 34.45 },
+  { code: "PS", lat: 32.05, lng: 35.75 },
   { code: "MV", lat: 3.2028, lng: 73.2207 },
   { code: "SG", lat: 1.3521, lng: 103.8198 },
   { code: "MC", lat: 43.7384, lng: 7.4246 },
@@ -410,6 +413,7 @@ const SMALL_COUNTRY_HOTSPOTS = [
 const SMALL_COUNTRY_CODES = new Set(SMALL_COUNTRY_HOTSPOTS.map((country) => country.code));
 const COUNTRY_BUTTON_POSITION_OVERRIDES = {
   MY: [4.2, 102.05],
+  VN: [16.1, 108.05],
 };
 const FEATURE_BOUNDS_CENTER_CACHE = new WeakMap();
 const FEATURE_AREA_CACHE = new WeakMap();
