@@ -17,6 +17,15 @@ import {
 } from "./utils/countries";
 
 const WORLD_GEOJSON_URL = "/countries-light.geojson";
+const CANONICAL_APP_ORIGIN = "https://whereyoubeen.vercel.app";
+const CANONICAL_APP_HOST = "whereyoubeen.vercel.app";
+const LEGACY_APP_HOSTS = new Set([
+  "travel-map-five-kappa.vercel.app",
+  "travel-map-donny-kims-projects.vercel.app",
+  "travel-map-git-main-donny-kims-projects.vercel.app",
+  "whereyoubeen-donny-kims-projects.vercel.app",
+  "whereyoubeen-git-main-donny-kims-projects.vercel.app",
+]);
 const MAX_AVATAR_SIZE = 2 * 1024 * 1024;
 const MAX_COMMUNITY_IMAGE_SIZE = 5 * 1024 * 1024;
 const DEFAULT_LANGUAGE = "en";
@@ -43,6 +52,31 @@ const TILE_LAYERS = {
     subdomains: "abcd",
   },
 };
+
+function shouldUseCanonicalHost(hostname) {
+  return LEGACY_APP_HOSTS.has(hostname);
+}
+
+function canonicalizeCurrentLocation() {
+  if (typeof window === "undefined") return;
+
+  const { hostname, pathname, search, hash } = window.location;
+  if (!shouldUseCanonicalHost(hostname)) return;
+
+  window.location.replace(`${CANONICAL_APP_ORIGIN}${pathname}${search}${hash}`);
+}
+
+function getAuthRedirectUrl() {
+  if (typeof window === "undefined") return CANONICAL_APP_ORIGIN;
+
+  const { hostname, origin } = window.location;
+  if (hostname === "localhost" || hostname === "127.0.0.1") return origin;
+  if (hostname === CANONICAL_APP_HOST) return origin;
+  return CANONICAL_APP_ORIGIN;
+}
+
+canonicalizeCurrentLocation();
+
 const TEXT = {
   en: {
     activity: "Activity",
@@ -722,7 +756,7 @@ function LoginScreen() {
     await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: window.location.origin,
+        redirectTo: getAuthRedirectUrl(),
       },
     });
   };
