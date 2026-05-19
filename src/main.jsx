@@ -152,6 +152,8 @@ const TEXT = {
     editNickname: "Edit nickname",
     nicknamePrompt: "Private nickname",
     nicknameSaved: "Nickname saved",
+    friendNicknameSetupRequired:
+      "Friend nicknames are not set up yet. Run supabase/migrations/013_friend_nicknames.sql in Supabase SQL Editor.",
     badges: "Badges",
     unlocked: "Unlocked",
     locked: "Locked",
@@ -292,6 +294,8 @@ const TEXT = {
     editNickname: "닉네임 수정",
     nicknamePrompt: "나만 볼 친구 닉네임",
     nicknameSaved: "닉네임을 저장했습니다",
+    friendNicknameSetupRequired:
+      "친구 닉네임 DB 설정이 아직 필요합니다. Supabase SQL Editor에서 supabase/migrations/013_friend_nicknames.sql을 실행해 주세요.",
     badges: "배지",
     unlocked: "해제됨",
     locked: "잠김",
@@ -345,6 +349,7 @@ const SMALL_COUNTRY_HOTSPOTS = [
   { code: "LC", lat: 13.9094, lng: -60.9789 },
   { code: "VC", lat: 12.9843, lng: -61.2872 },
 ];
+const SMALL_COUNTRY_CODES = new Set(SMALL_COUNTRY_HOTSPOTS.map((country) => country.code));
 
 function FitWorld() {
   const map = useMap();
@@ -409,6 +414,11 @@ function isMissingCommunityPostsError(error) {
     message.includes("updated_at") ||
     message.includes("schema cache")
   );
+}
+
+function isMissingFriendNicknamesError(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return message.includes("friend_nicknames") || message.includes("schema cache");
 }
 
 function isMissingCommunityImageBucketError(error) {
@@ -508,6 +518,18 @@ function createAvatarIcon(friends) {
     html,
     iconSize: [92, 32],
     iconAnchor: [18, 16],
+  });
+}
+
+function createCountryButtonIcon({ code, friendCount = 0, selected = false }) {
+  const countBadge = friendCount ? `<span class="country-button-count">${friendCount}</span>` : "";
+  return L.divIcon({
+    className: `country-button-marker ${selected ? "is-selected" : ""}`,
+    html: `<button class="country-map-button" type="button" aria-label="${escapeHtml(
+      getCountryName(code, "en") || code,
+    )}">${escapeHtml(countryFlag(code))}${countBadge}</button>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 17],
   });
 }
 
@@ -781,7 +803,65 @@ function FriendAvatarMarkers({ geojson, friendVisitMap, onSelectCountry }) {
   ));
 }
 
-function SmallCountryHotspots({ friendVisitMap, language, onSelectCountry, onCountryHover, onCountryHoverEnd }) {
+function CountryButtonMarkers({ geojson, friendVisitMap, selectedCountryCode, zoom, onSelectCountry }) {
+  const markers = useMemo(() => {
+    if (zoom < 4) return [];
+
+    return (geojson?.features || [])
+      .map((feature) => {
+        const code = getIsoA2FromFeature(feature);
+        if (!code || SMALL_COUNTRY_CODES.has(code)) return null;
+
+        const position = getFeatureDisplayCenter(feature);
+        if (!position) return null;
+
+        const friends = friendVisitMap.get(code) || [];
+        return {
+          code,
+          flag: countryFlag(code),
+          name: getCountryName(code, "en") || countryNameFromFeature(feature),
+          friendCount: friends.length,
+          position,
+        };
+      })
+      .filter(Boolean);
+  }, [friendVisitMap, geojson, zoom]);
+
+  return markers.map((marker) => {
+    const label = `${marker.flag} ${marker.name}${marker.friendCount ? ` · ${marker.friendCount}` : ""}`;
+    return (
+      <Marker
+        key={marker.code}
+        position={marker.position}
+        icon={createCountryButtonIcon({
+          code: marker.code,
+          friendCount: marker.friendCount,
+          selected: selectedCountryCode === marker.code,
+        })}
+        riseOnHover
+        eventHandlers={{
+          click: (event) => {
+            const original = event.originalEvent || {};
+            onSelectCountry({
+              code: marker.code,
+              flag: marker.flag,
+              name: marker.name,
+              x: original.clientX || 24,
+              y: original.clientY || 160,
+              showDetails: true,
+            });
+          },
+        }}
+      >
+        <Tooltip direction="top" offset={[0, -14]} opacity={0.95} interactive={false}>
+          {label}
+        </Tooltip>
+      </Marker>
+    );
+  });
+}
+
+function SmallCountryHotspots({ friendVisitMap, onSelectCountry }) {
   return SMALL_COUNTRY_HOTSPOTS.map((hotspot) => {
     const code = normalizeCountryCode(hotspot.code);
     const friends = friendVisitMap.get(code) || [];
@@ -804,7 +884,6 @@ function SmallCountryHotspots({ friendVisitMap, language, onSelectCountry, onCou
         eventHandlers={{
           click: (event) => {
             const original = event.originalEvent || {};
-            onCountryHoverEnd?.();
             onSelectCountry({
               code,
               flag,
@@ -814,17 +893,6 @@ function SmallCountryHotspots({ friendVisitMap, language, onSelectCountry, onCou
               showDetails: true,
             });
           },
-          mouseover: (event) => {
-            const original = event.originalEvent || {};
-            onCountryHover?.({
-              code,
-              flag,
-              name,
-              x: original.clientX || 24,
-              y: original.clientY || 160,
-            });
-          },
-          mouseout: () => onCountryHoverEnd?.(),
         }}
       >
         <Tooltip direction="top" offset={[0, -8]} opacity={0.95} interactive={false}>
@@ -874,8 +942,6 @@ function TravelMap({
   onRemoveVisited,
   onMissingCountry,
   selectedFriend,
-  onCountryHover,
-  onCountryHoverEnd,
 }) {
   const geoJsonRef = useRef(null);
   const [zoom, setZoom] = useState(2);
@@ -971,14 +1037,7 @@ function TravelMap({
           });
         },
         mouseover: (event) => {
-          const original = event.originalEvent || {};
           const style = styleFeature(feature);
-          onCountryHover?.({
-            code,
-            flag,
-            x: original.clientX || 24,
-            y: original.clientY || 160,
-          });
           layer.setStyle({
             weight: style.weight + 0.35,
             opacity: Math.min((style.opacity || 0.2) + 0.18, 0.64),
@@ -989,11 +1048,10 @@ function TravelMap({
         },
         mouseout: () => {
           geoJsonRef.current?.resetStyle(layer);
-          onCountryHoverEnd?.();
         },
       });
     },
-    [onCountryHover, onCountryHoverEnd, onSelectCountry, styleFeature],
+    [onSelectCountry, styleFeature],
   );
 
   const handleZoomChange = useCallback((nextZoom) => {
@@ -1038,31 +1096,19 @@ function TravelMap({
         onMissingCountry={onMissingCountry}
       />
       <FriendAvatarMarkers geojson={geojson} friendVisitMap={friendVisitMap} onSelectCountry={onSelectCountry} />
+      <CountryButtonMarkers
+        geojson={geojson}
+        friendVisitMap={friendVisitMap}
+        selectedCountryCode={selectedCountry?.code}
+        zoom={zoom}
+        onSelectCountry={onSelectCountry}
+      />
       <SmallCountryHotspots
         friendVisitMap={friendVisitMap}
-        language={language}
         onSelectCountry={onSelectCountry}
-        onCountryHover={onCountryHover}
-        onCountryHoverEnd={onCountryHoverEnd}
       />
       <MapLegend language={language} />
     </MapContainer>
-  );
-}
-
-function CountryHoverLabel({ country, language, friendVisitMap }) {
-  if (!country) return null;
-
-  const code = normalizeCountryCode(country.code);
-  const displayName = getCountryName(code, "en") || country.name || code;
-  const x = Math.min(Math.max((country.x || 24) + 12, 12), Math.max(12, window.innerWidth - 220));
-  const y = Math.min(Math.max((country.y || 120) + 12, 12), Math.max(12, window.innerHeight - 72));
-
-  return (
-    <div className="country-hover-label" style={{ left: x, top: y }} aria-label={displayName}>
-      <span>{country.flag || countryFlag(code)}</span>
-      <strong>{displayName}</strong>
-    </div>
   );
 }
 
@@ -2457,7 +2503,6 @@ function App() {
   const [selectedFriendId, setSelectedFriendId] = useState("");
   const [activities, setActivities] = useState([]);
   const [selectedCountry, setSelectedCountry] = useState(null);
-  const [hoveredCountry, setHoveredCountry] = useState(null);
   const [friendQuery, setFriendQuery] = useState("");
   const [notice, setNotice] = useState("");
   const [isSavingVisit, setIsSavingVisit] = useState(false);
@@ -2488,7 +2533,6 @@ function App() {
   const [adminUsers, setAdminUsers] = useState([]);
   const [isLoadingAdminUsers, setIsLoadingAdminUsers] = useState(false);
   const [animatedCountryCode, setAnimatedCountryCode] = useState("");
-  const hoverHideTimer = useRef(null);
 
   const language = getLanguage(profile);
 
@@ -2876,14 +2920,6 @@ function App() {
   }, [friends, selectedFriendId]);
 
   useEffect(() => {
-    return () => {
-      if (hoverHideTimer.current) {
-        window.clearTimeout(hoverHideTimer.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
     refreshGlobalStats();
   }, [refreshGlobalStats, mineVisits.length]);
 
@@ -3122,7 +3158,7 @@ function App() {
 
     if (result.error) {
       setFriends(previousFriends);
-      setNotice(result.error.message);
+      setNotice(isMissingFriendNicknamesError(result.error) ? t(language, "friendNicknameSetupRequired") : result.error.message);
       return;
     }
 
@@ -3226,31 +3262,6 @@ function App() {
     },
     [countryOptions, defaultCommunityCountry, language],
   );
-
-  const showCountryHover = useCallback(
-    (country) => {
-      if (hoverHideTimer.current) {
-        window.clearTimeout(hoverHideTimer.current);
-      }
-      const code = normalizeCountryCode(country?.code);
-      if (!code) return;
-      setHoveredCountry({
-        code,
-        flag: country.flag || countryFlag(code),
-        name: getCountryName(code, "en"),
-        x: country.x,
-        y: country.y,
-      });
-    },
-    [],
-  );
-
-  const scheduleCountryHoverClose = useCallback(() => {
-    if (hoverHideTimer.current) {
-      window.clearTimeout(hoverHideTimer.current);
-    }
-    hoverHideTimer.current = window.setTimeout(() => setHoveredCountry(null), 120);
-  }, []);
 
   const refreshCommunityPosts = useCallback(
     async (countryCode) => {
@@ -4031,8 +4042,6 @@ function App() {
               onRemoveVisited={handleRemoveVisited}
               onMissingCountry={() => setNotice(t(language, "countryNotFound"))}
               selectedFriend={selectedFriend}
-              onCountryHover={showCountryHover}
-              onCountryHoverEnd={scheduleCountryHoverClose}
             />
           ) : (
             <div className="map-fallback">
@@ -4040,7 +4049,6 @@ function App() {
               <p>{geojsonError || t(language, "mapFallback")}</p>
             </div>
           )}
-          <CountryHoverLabel country={hoveredCountry} language={language} friendVisitMap={friendVisitMap} />
           <CountryDetailCard
             country={selectedCountry}
             mineSet={visitState.mineSet}

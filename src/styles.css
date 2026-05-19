@@ -502,30 +502,52 @@ button:disabled {
   background: #172033;
 }
 
-.country-hover-label {
-  position: fixed;
-  z-index: 760;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  max-width: min(220px, calc(100vw - 24px));
-  padding: 8px 10px;
-  border: 1px solid rgba(203, 213, 225, 0.92);
-  border-radius: 999px;
-  color: #0f172a;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16);
-  pointer-events: none;
-  backdrop-filter: blur(10px);
+.country-button-marker {
+  border: 0;
+  background: transparent;
 }
 
-.country-hover-label strong {
-  overflow: hidden;
-  font-size: 0.88rem;
-  font-weight: 850;
+.country-map-button {
+  position: relative;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+  cursor: pointer;
+  font-size: 15px;
   line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  transition:
+    transform 150ms ease,
+    box-shadow 150ms ease,
+    border-color 150ms ease;
+}
+
+.country-button-marker.is-selected .country-map-button,
+.country-map-button:hover {
+  border-color: #0f766e;
+  box-shadow: 0 10px 26px rgba(15, 118, 110, 0.26);
+  transform: translateY(-1px) scale(1.08);
+}
+
+.country-button-count {
+  position: absolute;
+  right: -6px;
+  top: -6px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border: 1px solid #ffffff;
+  border-radius: 999px;
+  background: #0f766e;
+  color: #ffffff;
+  font-size: 9px;
+  font-weight: 900;
+  line-height: 13px;
+  text-align: center;
 }
 
 .country-detail-card {
