@@ -13,6 +13,38 @@
       ]
     }
   ],
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "travel-map-five-kappa.vercel.app" }],
+      "destination": "https://whereyoubeen.vercel.app/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "travel-map-donny-kims-projects.vercel.app" }],
+      "destination": "https://whereyoubeen.vercel.app/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "travel-map-git-main-donny-kims-projects.vercel.app" }],
+      "destination": "https://whereyoubeen.vercel.app/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "whereyoubeen-donny-kims-projects.vercel.app" }],
+      "destination": "https://whereyoubeen.vercel.app/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "whereyoubeen-git-main-donny-kims-projects.vercel.app" }],
+      "destination": "https://whereyoubeen.vercel.app/:path*",
+      "permanent": true
+    }
+  ],
   "rewrites": [
     {
       "source": "/(.*)",
