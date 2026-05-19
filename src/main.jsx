@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { GeoJSON, MapContainer, Marker, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
-import { ArrowDown, ArrowUp, Bell, Check, Edit3, Globe2, ImagePlus, Instagram, LogOut, Medal, MessageCircle, Plus, RefreshCw, Search, Settings, Share2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Bell, Check, Edit3, Globe2, ImagePlus, Instagram, LogOut, Medal, MessageCircle, Plus, Search, Settings, Share2, X } from "lucide-react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./styles.css";
@@ -406,6 +406,9 @@ const SMALL_COUNTRY_HOTSPOTS = [
   { code: "VC", lat: 12.9843, lng: -61.2872 },
 ];
 const SMALL_COUNTRY_CODES = new Set(SMALL_COUNTRY_HOTSPOTS.map((country) => country.code));
+const COUNTRY_BUTTON_POSITION_OVERRIDES = {
+  MY: [4.2, 102.05],
+};
 const BLOCKED_NAME_TERMS = [
   "fuck",
   "shit",
@@ -491,7 +494,10 @@ function normalizeNameForSafety(value) {
 function isUnsafeName(value) {
   const normalized = normalizeNameForSafety(value);
   if (!normalized) return false;
-  return BLOCKED_NAME_TERMS.some((term) => normalized.includes(normalizeNameForSafety(term)));
+  return BLOCKED_NAME_TERMS.some((term) => {
+    const normalizedTerm = normalizeNameForSafety(term);
+    return normalizedTerm && normalized.includes(normalizedTerm);
+  });
 }
 
 function avatarLetter(username) {
@@ -772,19 +778,31 @@ function getCountryButtonMinZoom(feature) {
 }
 
 function ringCentroid(ring) {
-  if (!Array.isArray(ring) || !ring.length) return null;
-  const sum = ring.reduce(
-    (acc, point) => {
-      acc.lng += point[0];
-      acc.lat += point[1];
-      return acc;
-    },
-    { lat: 0, lng: 0 },
-  );
-  return [sum.lat / ring.length, Math.max(-179.5, Math.min(179.5, sum.lng / ring.length))];
+  if (!Array.isArray(ring) || ring.length < 3) return null;
+  let areaFactor = 0;
+  let centroidLng = 0;
+  let centroidLat = 0;
+
+  for (let index = 0; index < ring.length - 1; index += 1) {
+    const current = ring[index];
+    const next = ring[index + 1];
+    const cross = current[0] * next[1] - next[0] * current[1];
+    areaFactor += cross;
+    centroidLng += (current[0] + next[0]) * cross;
+    centroidLat += (current[1] + next[1]) * cross;
+  }
+
+  if (!areaFactor) return getFeatureBoundsCenter({ geometry: { coordinates: ring } });
+
+  const lng = centroidLng / (3 * areaFactor);
+  const lat = centroidLat / (3 * areaFactor);
+  return [lat, Math.max(-179.5, Math.min(179.5, lng))];
 }
 
 function getFeatureDisplayCenter(feature) {
+  const code = getIsoA2FromFeature(feature);
+  if (COUNTRY_BUTTON_POSITION_OVERRIDES[code]) return COUNTRY_BUTTON_POSITION_OVERRIDES[code];
+
   const geometry = feature?.geometry;
   const polygons =
     geometry?.type === "Polygon"
@@ -1282,7 +1300,6 @@ function CountryDetailCard({
   isSaving,
   onMarkVisited,
   onRemoveVisited,
-  onOpenCommunity,
   onClose,
 }) {
   if (!country) return null;
@@ -1327,10 +1344,6 @@ function CountryDetailCard({
           <Check size={16} />
           {mine ? t(language, "removeVisited") : t(language, "countryVisited")}
         </button>
-        <button className="secondary-action" onClick={() => onOpenCommunity({ code, flag: country.flag, name: displayName })}>
-          <MessageCircle size={16} />
-          {t(language, "communityOpen")}
-        </button>
       </div>
 
       <div>
@@ -1352,7 +1365,7 @@ function CountryDetailCard({
   );
 }
 
-function FriendPanel({ friends, friendQuery, setFriendQuery, language, onAddFriend, onSaveNickname, isAdding }) {
+function FriendPanel({ friends, friendQuery, setFriendQuery, language, onAddFriend, isAdding }) {
   return (
     <aside className="side-panel">
       <div className="panel-heading">
@@ -1380,13 +1393,6 @@ function FriendPanel({ friends, friendQuery, setFriendQuery, language, onAddFrie
                 <Avatar user={friend} size="sm" />
                 <span>{getDisplayName(friend, language)}</span>
               </span>
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => onSaveNickname(friend)}
-              >
-                {t(language, "editNickname")}
-              </button>
             </li>
           ))}
         </ul>
@@ -1749,7 +1755,7 @@ function ActivityFeed({ activities, language, compact = false }) {
   );
 }
 
-function AccountMenu({ profile, language, isOpen, onToggle, onProfileSettings, onBadges, onLogout }) {
+function AccountMenu({ profile, language, isOpen, onToggle, onProfileSettings, onCountryCollection, onBadges, onLogout }) {
   return (
     <div className="account-menu-wrap">
       <button
@@ -1766,6 +1772,10 @@ function AccountMenu({ profile, language, isOpen, onToggle, onProfileSettings, o
           <button onClick={onProfileSettings}>
             <Settings size={16} />
             {t(language, "profileSettings")}
+          </button>
+          <button onClick={onCountryCollection}>
+            <Globe2 size={16} />
+            {t(language, "countryCollection")}
           </button>
           <button onClick={onBadges}>
             <Medal size={16} />
@@ -4171,30 +4181,18 @@ function App() {
           </h1>
         </div>
         <div className="top-actions">
-          <button className="nav-action" onClick={() => setIsCountryCollectionOpen(true)}>
-            <Globe2 size={17} />
-            <span>{t(language, "countryCollection")}</span>
-          </button>
-          <button className="nav-action" onClick={() => openCommunity(selectedCountry || defaultCommunityCountry)}>
-            <MessageCircle size={17} />
-            <span>{t(language, "community")}</span>
-          </button>
           {profile?.is_admin && (
             <button className="nav-action" onClick={() => setIsAdminPanelOpen(true)}>
               <Settings size={17} />
               <span>{t(language, "adminPanel")}</span>
             </button>
           )}
-          <a className="instagram-top-link" href="https://www.instagram.com/gafl.ai" target="_blank" rel="noreferrer">
+          <a className="instagram-top-link" href="https://www.instagram.com/gafl.ai" target="_blank" rel="noreferrer" aria-label="@gafl.ai">
             <Instagram size={17} />
-            <span>@gafl.ai</span>
           </a>
           <button className="nav-action" onClick={() => setIsShareOpen(true)}>
             <Share2 size={17} />
             <span>{t(language, "share")}</span>
-          </button>
-          <button className="icon-button" onClick={refreshSocialData} title={t(language, "refresh")} aria-label={t(language, "refresh")}>
-            <RefreshCw size={18} />
           </button>
           <NotificationMenu
             activities={activities}
@@ -4235,6 +4233,10 @@ function App() {
               } else {
                 setNotice(t(language, "profileStillLoading"));
               }
+            }}
+            onCountryCollection={() => {
+              setIsAccountMenuOpen(false);
+              setIsCountryCollectionOpen(true);
             }}
             onBadges={() => {
               setIsAccountMenuOpen(false);
@@ -4317,33 +4319,6 @@ function App() {
         />
       )}
 
-      {isCommunityOpen && (
-        <CommunityModal
-          countries={countryOptions}
-          selectedCountry={communityCountry || defaultCommunityCountry}
-          posts={communityPosts}
-          repliesByPost={communityRepliesByPost}
-          voteSummaryByPost={communityVoteSummaryByPost}
-          currentUserId={session?.user?.id}
-          visitPercent={communityFriendVisitPercent}
-          isLoading={isCommunityLoading}
-          isPosting={isPostingCommunity}
-          replyingPostId={replyingPostId}
-          language={language}
-          mineSet={visitState.mineSet}
-          authorVisitedMap={communityAuthorVisits}
-          onSelectCountry={setCommunityCountry}
-          onCreatePost={handleCreateCommunityPost}
-          onUpdatePost={handleUpdateCommunityPost}
-          onDeletePost={handleDeleteCommunityPost}
-          onCreateReply={handleCreateCommunityReply}
-          onUpdateReply={handleUpdateCommunityReply}
-          onDeleteReply={handleDeleteCommunityReply}
-          onVote={handleCommunityVote}
-          onClose={() => setIsCommunityOpen(false)}
-        />
-      )}
-
       <section className="workspace">
         <div className="map-wrap">
           <FriendMapRow
@@ -4391,7 +4366,6 @@ function App() {
             isSaving={isSavingVisit}
             onMarkVisited={handleMarkVisited}
             onRemoveVisited={handleRemoveVisited}
-            onOpenCommunity={openCommunity}
             onClose={() => setSelectedCountry(null)}
           />
         </div>
@@ -4412,7 +4386,6 @@ function App() {
               setFriendQuery={setFriendQuery}
               language={language}
               onAddFriend={handleAddFriend}
-              onSaveNickname={handleSaveFriendNickname}
               isAdding={isAddingFriend}
             />
           )}
