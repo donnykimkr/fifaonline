@@ -466,6 +466,45 @@ const EARLY_COUNTRY_BUTTON_MIN_ZOOM = {
   KP: 3,
   KR: 3,
 };
+const COUNTRY_BUTTON_SHORT_NAMES = {
+  AE: "UAE",
+  AG: "Antigua",
+  BA: "Bosnia",
+  BN: "Brunei",
+  BO: "Bolivia",
+  CF: "CAR",
+  CD: "DR Congo",
+  CG: "Congo",
+  CI: "Cote d'Ivoire",
+  CZ: "Czechia",
+  DO: "Dominican Rep.",
+  GB: "UK",
+  GQ: "Eq. Guinea",
+  HK: "Hong Kong",
+  KN: "St. Kitts",
+  KP: "N. Korea",
+  KR: "S. Korea",
+  LA: "Laos",
+  LC: "St. Lucia",
+  LI: "Liechtenstein",
+  MC: "Monaco",
+  MD: "Moldova",
+  ME: "Montenegro",
+  MK: "N. Macedonia",
+  MO: "Macao",
+  NL: "Netherlands",
+  PS: "Palestine",
+  SG: "Singapore",
+  SM: "San Marino",
+  ST: "Sao Tome",
+  SZ: "Eswatini",
+  TT: "Trinidad",
+  TZ: "Tanzania",
+  US: "USA",
+  VA: "Vatican",
+  VC: "St. Vincent",
+  XK: "Kosovo",
+};
 const COMBINED_SMALL_COUNTRY_MARKERS = [
   {
     id: "HK_MO",
@@ -979,20 +1018,33 @@ function Avatar({ user, size = "md" }) {
   );
 }
 
-function getGroupedCountryButtonSize(groupCount) {
+function getCountryButtonShortName(code, fallbackName = "") {
+  const countryCode = normalizeCountryCode(code);
+  const name = COUNTRY_BUTTON_SHORT_NAMES[countryCode] || fallbackName || getCountryName(countryCode, "en") || countryCode;
+  return name.length > 15 ? `${name.slice(0, 14)}…` : name;
+}
+
+function getCountryButtonLabel(code, fallbackName = "") {
+  return `${countryFlag(code)} ${getCountryButtonShortName(code, fallbackName)}`;
+}
+
+function getGroupedCountryButtonSize(groupCount, label = "") {
   if (groupCount >= 10) return { iconSize: [112, 54], iconAnchor: [56, 27] };
   if (groupCount >= 5) return { iconSize: [112, 76], iconAnchor: [56, 38] };
   if (groupCount === 4) return { iconSize: [146, 48], iconAnchor: [73, 24] };
   if (groupCount === 3) return { iconSize: [118, 48], iconAnchor: [59, 24] };
   if (groupCount === 2) return { iconSize: [86, 48], iconAnchor: [43, 24] };
-  return { iconSize: [48, 48], iconAnchor: [24, 24] };
+  const labelLength = Array.from(label).length;
+  const width = Math.min(148, Math.max(82, 30 + labelLength * 8));
+  return { iconSize: [width, 48], iconAnchor: [width / 2, 24] };
 }
 
 function createCountryButtonIcon({ code, friendCount = 0, selected = false, label = "", groupCount = 1, groupCodes = null }) {
   const countBadge = friendCount ? `<span class="country-button-count">${friendCount}</span>` : "";
-  const displayLabel = label || countryFlag(code);
+  const displayLabel = label || getCountryButtonLabel(code);
   const groupClass = groupCount > 1 ? `is-group-${Math.min(groupCount, 5)}` : "";
-  const { iconSize, iconAnchor } = getGroupedCountryButtonSize(groupCount);
+  const labelClass = groupCount === 1 ? "has-country-name" : "";
+  const { iconSize, iconAnchor } = getGroupedCountryButtonSize(groupCount, displayLabel);
   const parentCode = groupCount === 1 ? OVERSEAS_TERRITORY_PARENTS[code] : "";
   const parentBadge = parentCode
     ? `<span class="country-owner-badge" title="${escapeHtml(getCountryName(parentCode, "en"))}">${countryFlag(parentCode)}</span>`
@@ -1006,7 +1058,7 @@ function createCountryButtonIcon({ code, friendCount = 0, selected = false, labe
           .join("")}</span>`
       : escapeHtml(displayLabel);
   return L.divIcon({
-    className: `country-button-marker ${groupClass} ${selected ? "is-selected" : ""}`,
+    className: `country-button-marker ${groupClass} ${labelClass} ${selected ? "is-selected" : ""}`,
     html: `<button class="country-map-button" type="button" aria-label="${escapeHtml(
       getCountryName(code, "en") || code,
     )}">${innerHtml}${parentBadge}${countBadge}</button>`,
@@ -1380,6 +1432,7 @@ function CountryButtonMarkers({ geojson, friendVisitMap, selectedCountryCode, zo
           code: marker.code,
           friendCount: marker.friendCount,
           selected: selectedCountryCode === marker.code,
+          label: getCountryButtonLabel(marker.code, marker.name),
         })}
         riseOnHover
         eventHandlers={{
@@ -1463,6 +1516,7 @@ function SmallCountryHotspots({ friendVisitMap, selectedCountryCode, zoom, onSel
           code,
           friendCount: friends.length,
           selected: selectedCountryCode === code,
+          label: getCountryButtonLabel(code, name),
         })}
         riseOnHover
         eventHandlers={{

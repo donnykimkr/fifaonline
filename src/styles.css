@@ -519,6 +519,24 @@ button:disabled {
     border-color 150ms ease;
 }
 
+.country-button-marker.has-country-name .country-map-button {
+  display: inline-flex;
+  width: auto;
+  min-width: 74px;
+  max-width: 142px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 0.84rem;
+  font-weight: 900;
+  line-height: 1;
+  text-overflow: ellipsis;
+}
+
 .country-button-marker.is-group-2 .country-map-button {
   width: 76px;
   font-size: 21px;
