@@ -415,8 +415,29 @@ const SMALL_COUNTRY_HOTSPOTS = [
   { code: "GD", lat: 12.1165, lng: -61.679 },
   { code: "LC", lat: 13.9094, lng: -60.9789 },
   { code: "VC", lat: 12.9843, lng: -61.2872 },
+  { code: "AW", lat: 12.5211, lng: -69.9683 },
+  { code: "CW", lat: 12.1696, lng: -68.99 },
 ];
 const SMALL_COUNTRY_CODES = new Set(SMALL_COUNTRY_HOTSPOTS.map((country) => country.code));
+const OVERSEAS_TERRITORY_PARENTS = {
+  AI: "GB",
+  AW: "NL",
+  BL: "FR",
+  CW: "NL",
+  GG: "GB",
+  GU: "US",
+  JE: "GB",
+  KY: "GB",
+  MF: "FR",
+  MO: "CN",
+  MP: "US",
+  MS: "GB",
+  PR: "US",
+  SX: "NL",
+  TC: "GB",
+  VG: "GB",
+  VI: "US",
+};
 const COUNTRY_BUTTON_POSITION_OVERRIDES = {
   FI: [64.6, 26.2],
   GB: [54.6, -2.4],
@@ -494,6 +515,16 @@ const COMBINED_SMALL_COUNTRY_MARKERS = [
     iconLabel: "🇬🇺🇲🇵",
   },
   {
+    id: "AW_CW",
+    codes: ["AW", "CW"],
+    lat: 12.34,
+    lng: -69.48,
+    minZoom: 5,
+    maxZoom: 6,
+    label: "🇦🇼 Aruba / 🇨🇼 Curaçao",
+    iconLabel: "🇦🇼🇨🇼",
+  },
+  {
     id: "IT_VA_SM",
     codes: ["IT", "VA", "SM"],
     lat: 42.65,
@@ -514,16 +545,6 @@ const COMBINED_SMALL_COUNTRY_MARKERS = [
     iconLabel: "🇸🇬🇲🇾",
   },
   {
-    id: "BE_NL_LU",
-    codes: ["BE", "NL", "LU"],
-    lat: 51.0,
-    lng: 5.1,
-    minZoom: 5,
-    maxZoom: 5,
-    label: "🇧🇪 Belgium / 🇳🇱 Netherlands / 🇱🇺 Luxembourg",
-    iconLabel: "🇧🇪🇳🇱🇱🇺",
-  },
-  {
     id: "CH_LI",
     codes: ["CH", "LI"],
     lat: 46.95,
@@ -532,16 +553,6 @@ const COMBINED_SMALL_COUNTRY_MARKERS = [
     maxZoom: 6,
     label: "🇨🇭 Switzerland / 🇱🇮 Liechtenstein",
     iconLabel: "🇨🇭🇱🇮",
-  },
-  {
-    id: "EE_LV_LT",
-    codes: ["EE", "LV", "LT"],
-    lat: 57.0,
-    lng: 24.5,
-    minZoom: 5,
-    maxZoom: 5,
-    label: "🇪🇪 Estonia / 🇱🇻 Latvia / 🇱🇹 Lithuania",
-    iconLabel: "🇪🇪🇱🇻🇱🇹",
   },
   {
     id: "EAST_CARIBBEAN",
@@ -886,23 +897,33 @@ function Avatar({ user, size = "md" }) {
 }
 
 function getGroupedCountryButtonSize(groupCount) {
-  if (groupCount >= 5) return { iconSize: [146, 48], iconAnchor: [73, 24] };
+  if (groupCount >= 5) return { iconSize: [112, 76], iconAnchor: [56, 38] };
   if (groupCount === 4) return { iconSize: [146, 48], iconAnchor: [73, 24] };
   if (groupCount === 3) return { iconSize: [118, 48], iconAnchor: [59, 24] };
   if (groupCount === 2) return { iconSize: [86, 48], iconAnchor: [43, 24] };
   return { iconSize: [48, 48], iconAnchor: [24, 24] };
 }
 
-function createCountryButtonIcon({ code, friendCount = 0, selected = false, label = "", groupCount = 1 }) {
+function createCountryButtonIcon({ code, friendCount = 0, selected = false, label = "", groupCount = 1, groupCodes = null }) {
   const countBadge = friendCount ? `<span class="country-button-count">${friendCount}</span>` : "";
   const displayLabel = label || countryFlag(code);
   const groupClass = groupCount > 1 ? `is-group-${Math.min(groupCount, 5)}` : "";
   const { iconSize, iconAnchor } = getGroupedCountryButtonSize(groupCount);
+  const parentCode = OVERSEAS_TERRITORY_PARENTS[code];
+  const parentBadge = parentCode
+    ? `<span class="country-owner-badge" title="${escapeHtml(getCountryName(parentCode, "en"))}">${countryFlag(parentCode)}</span>`
+    : "";
+  const innerHtml =
+    groupCodes?.length >= 5
+      ? `<span class="country-button-cluster">${groupCodes
+          .map((groupCode) => `<span>${countryFlag(groupCode)}</span>`)
+          .join("")}</span>`
+      : escapeHtml(displayLabel);
   return L.divIcon({
     className: `country-button-marker ${groupClass} ${selected ? "is-selected" : ""}`,
     html: `<button class="country-map-button" type="button" aria-label="${escapeHtml(
       getCountryName(code, "en") || code,
-    )}">${escapeHtml(displayLabel)}${countBadge}</button>`,
+    )}">${innerHtml}${parentBadge}${countBadge}</button>`,
     iconSize,
     iconAnchor,
   });
@@ -1325,6 +1346,7 @@ function SmallCountryHotspots({ friendVisitMap, selectedCountryCode, zoom, onSel
             selected,
             label: marker.iconLabel,
             groupCount: marker.codes.length,
+            groupCodes: marker.codes,
           })}
           riseOnHover
           eventHandlers={{
@@ -1373,6 +1395,7 @@ function SmallCountryHotspots({ friendVisitMap, selectedCountryCode, zoom, onSel
       >
         <Tooltip direction="top" offset={[0, -14]} opacity={0.95} interactive={false}>
           {label}
+          {OVERSEAS_TERRITORY_PARENTS[code] ? ` · ${countryFlag(OVERSEAS_TERRITORY_PARENTS[code])} ${getCountryName(OVERSEAS_TERRITORY_PARENTS[code], "en")}` : ""}
         </Tooltip>
       </Marker>
     );

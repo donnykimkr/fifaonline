@@ -535,6 +535,53 @@ button:disabled {
   font-size: 19px;
 }
 
+.country-button-marker.is-group-5 .country-map-button {
+  width: 98px;
+  height: 66px;
+  border-radius: 28px;
+  font-size: 18px;
+}
+
+.country-button-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-content: center;
+  gap: 0 4px;
+  width: 78px;
+  line-height: 1.05;
+}
+
+.country-button-cluster span {
+  display: inline-flex;
+  width: 22px;
+  justify-content: center;
+}
+
+.country-button-cluster span:nth-child(4) {
+  margin-left: 11px;
+}
+
+.country-button-cluster span:nth-child(5) {
+  margin-right: 11px;
+}
+
+.country-owner-badge {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1.5px solid #ffffff;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 5px 12px rgba(15, 23, 42, 0.18);
+  font-size: 11px;
+  line-height: 1;
+}
+
 .country-button-marker.is-selected .country-map-button,
 .country-map-button:hover {
   border-color: #0f766e;
