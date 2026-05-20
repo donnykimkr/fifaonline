@@ -508,6 +508,66 @@ const COMBINED_SMALL_COUNTRY_MARKERS = [
     label: "🇸🇬 Singapore / 🇲🇾 Malaysia",
     iconLabel: "🇸🇬🇲🇾",
   },
+  {
+    id: "BE_NL_LU",
+    codes: ["BE", "NL", "LU"],
+    lat: 51.0,
+    lng: 5.1,
+    minZoom: 4,
+    maxZoom: 5,
+    label: "🇧🇪 Belgium / 🇳🇱 Netherlands / 🇱🇺 Luxembourg",
+    iconLabel: "🇧🇪🇳🇱🇱🇺",
+  },
+  {
+    id: "CH_LI",
+    codes: ["CH", "LI"],
+    lat: 46.95,
+    lng: 8.45,
+    minZoom: 4,
+    maxZoom: 6,
+    label: "🇨🇭 Switzerland / 🇱🇮 Liechtenstein",
+    iconLabel: "🇨🇭🇱🇮",
+  },
+  {
+    id: "FR_MC",
+    codes: ["FR", "MC"],
+    lat: 44.8,
+    lng: 5.2,
+    minZoom: 4,
+    maxZoom: 6,
+    label: "🇫🇷 France / 🇲🇨 Monaco",
+    iconLabel: "🇫🇷🇲🇨",
+  },
+  {
+    id: "ES_AD",
+    codes: ["ES", "AD"],
+    lat: 41.3,
+    lng: -1.0,
+    minZoom: 4,
+    maxZoom: 6,
+    label: "🇪🇸 Spain / 🇦🇩 Andorra",
+    iconLabel: "🇪🇸🇦🇩",
+  },
+  {
+    id: "EE_LV_LT",
+    codes: ["EE", "LV", "LT"],
+    lat: 57.0,
+    lng: 24.5,
+    minZoom: 4,
+    maxZoom: 5,
+    label: "🇪🇪 Estonia / 🇱🇻 Latvia / 🇱🇹 Lithuania",
+    iconLabel: "🇪🇪🇱🇻🇱🇹",
+  },
+  {
+    id: "EAST_CARIBBEAN",
+    codes: ["AG", "BB", "GD", "LC", "VC"],
+    lat: 14.25,
+    lng: -61.1,
+    minZoom: 4,
+    maxZoom: 6,
+    label: "Eastern Caribbean islands",
+    iconLabel: "🇦🇬🇧🇧🇬🇩🇱🇨🇻🇨",
+  },
 ];
 const FEATURE_BOUNDS_CENTER_CACHE = new WeakMap();
 const FEATURE_AREA_CACHE = new WeakMap();
@@ -846,6 +906,63 @@ function getGroupedCountryButtonSize(groupCount) {
   if (groupCount === 3) return { iconSize: [138, 54], iconAnchor: [69, 27] };
   if (groupCount === 2) return { iconSize: [100, 54], iconAnchor: [50, 27] };
   return { iconSize: [54, 54], iconAnchor: [27, 27] };
+}
+
+function markerBoxesOverlap(a, b, padding = 10) {
+  return (
+    Math.abs(a.x - b.x) < (a.width + b.width) / 2 + padding &&
+    Math.abs(a.y - b.y) < (a.height + b.height) / 2 + padding
+  );
+}
+
+function getMarkerOffsetCandidates(iconSize) {
+  const [width, height] = iconSize;
+  const xStep = Math.max(width + 18, 92);
+  const yStep = Math.max(height + 16, 70);
+  return [
+    [0, 0],
+    [0, -yStep],
+    [0, yStep],
+    [-xStep, 0],
+    [xStep, 0],
+    [-xStep, -yStep],
+    [xStep, -yStep],
+    [-xStep, yStep],
+    [xStep, yStep],
+    [0, -yStep * 2],
+    [0, yStep * 2],
+    [-xStep * 2, 0],
+    [xStep * 2, 0],
+  ];
+}
+
+function resolveMarkerCollisions(markers, map, zoom) {
+  const placed = [];
+
+  return markers.map((marker) => {
+    const { iconSize } = getGroupedCountryButtonSize(marker.codes.length);
+    const [width, height] = iconSize;
+    const basePoint = map.project([marker.lat, marker.lng], zoom);
+    const offsets = getMarkerOffsetCandidates(iconSize);
+    let chosenPoint = basePoint;
+
+    for (const [offsetX, offsetY] of offsets) {
+      const candidate = L.point(basePoint.x + offsetX, basePoint.y + offsetY);
+      const candidateBox = { x: candidate.x, y: candidate.y, width, height };
+      if (!placed.some((box) => markerBoxesOverlap(candidateBox, box))) {
+        chosenPoint = candidate;
+        placed.push(candidateBox);
+        break;
+      }
+    }
+
+    const position = map.unproject(chosenPoint, zoom);
+    return {
+      ...marker,
+      displayLat: position.lat,
+      displayLng: position.lng,
+    };
+  });
 }
 
 function createCountryButtonIcon({ code, friendCount = 0, selected = false, label = "", groupCount = 1 }) {
@@ -1263,9 +1380,13 @@ function SmallCountryHotspots({ friendVisitMap, selectedCountryCode, zoom, onSel
       .flatMap((marker) => marker.codes),
   );
 
-  const combinedMarkers = COMBINED_SMALL_COUNTRY_MARKERS
-    .filter((marker) => zoom >= marker.minZoom && zoom <= marker.maxZoom)
-    .map((marker) => {
+  const activeCombinedMarkers = resolveMarkerCollisions(
+    COMBINED_SMALL_COUNTRY_MARKERS.filter((marker) => zoom >= marker.minZoom && zoom <= marker.maxZoom),
+    map,
+    zoom,
+  );
+
+  const combinedMarkers = activeCombinedMarkers.map((marker) => {
       const friends = marker.codes.flatMap((code) => friendVisitMap.get(code) || []);
       const uniqueFriendCount = new Set(friends.map((friend) => friend.id)).size;
       const selected = marker.codes.includes(selectedCountryCode);
@@ -1273,7 +1394,7 @@ function SmallCountryHotspots({ friendVisitMap, selectedCountryCode, zoom, onSel
       return (
         <Marker
           key={marker.id}
-          position={[marker.lat, marker.lng]}
+          position={[marker.displayLat, marker.displayLng]}
           icon={createCountryButtonIcon({
             code: marker.codes[0],
             friendCount: uniqueFriendCount,
