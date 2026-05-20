@@ -502,15 +502,15 @@ button:disabled {
 .country-map-button {
   position: relative;
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 44px;
+  height: 44px;
   place-items: center;
-  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  border: 2px solid rgba(255, 255, 255, 0.98);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.22);
   cursor: pointer;
-  font-size: 15px;
+  font-size: 25px;
   line-height: 1;
   transition:
     transform 150ms ease,
@@ -519,7 +519,8 @@ button:disabled {
 }
 
 .country-button-marker.is-wide .country-map-button {
-  width: 50px;
+  width: 84px;
+  font-size: 24px;
 }
 
 .country-button-marker.is-selected .country-map-button,
@@ -531,18 +532,18 @@ button:disabled {
 
 .country-button-count {
   position: absolute;
-  right: -6px;
-  top: -6px;
-  min-width: 15px;
-  height: 15px;
+  right: -8px;
+  top: -8px;
+  min-width: 20px;
+  height: 20px;
   padding: 0 4px;
-  border: 1px solid #ffffff;
+  border: 2px solid #ffffff;
   border-radius: 999px;
   background: #0f766e;
   color: #ffffff;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 900;
-  line-height: 13px;
+  line-height: 16px;
   text-align: center;
 }
 
@@ -1051,7 +1052,7 @@ button:disabled {
 }
 
 .country-rank-flag {
-  font-size: 1.05rem;
+  font-size: 1.3rem;
 }
 
 .stat-grid {

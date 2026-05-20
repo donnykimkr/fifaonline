@@ -812,8 +812,8 @@ function createCountryButtonIcon({ code, friendCount = 0, selected = false, labe
     html: `<button class="country-map-button" type="button" aria-label="${escapeHtml(
       getCountryName(code, "en") || code,
     )}">${escapeHtml(displayLabel)}${countBadge}</button>`,
-    iconSize: wide ? [56, 34] : [34, 34],
-    iconAnchor: wide ? [28, 17] : [17, 17],
+    iconSize: wide ? [96, 54] : [54, 54],
+    iconAnchor: wide ? [48, 27] : [27, 27],
   });
 }
 
