@@ -392,6 +392,7 @@ const SMALL_COUNTRY_HOTSPOTS = [
   { code: "MO", lat: 22.12, lng: 113.52 },
   { code: "IL", lat: 31.25, lng: 34.62 },
   { code: "PS", lat: 31.95, lng: 35.2 },
+  { code: "IT", lat: 42.7, lng: 12.6 },
   { code: "GG", lat: 49.52, lng: -2.68 },
   { code: "JE", lat: 49.18, lng: -2.05 },
   { code: "QA", lat: 25.35, lng: 51.18 },
@@ -420,6 +421,11 @@ const COUNTRY_BUTTON_POSITION_OVERRIDES = {
   MY: [4.2, 102.05],
   VN: [16.1, 108.05],
   PH: [12.8, 122.2],
+};
+const EARLY_COUNTRY_BUTTON_MIN_ZOOM = {
+  AE: 3,
+  KP: 3,
+  KR: 3,
 };
 const COMBINED_SMALL_COUNTRY_MARKERS = [
   {
@@ -471,6 +477,26 @@ const COMBINED_SMALL_COUNTRY_MARKERS = [
     maxZoom: 6,
     label: "🇬🇺 Guam / 🇲🇵 Saipan",
     iconLabel: "🇬🇺🇲🇵",
+  },
+  {
+    id: "IT_VA_SM",
+    codes: ["IT", "VA", "SM"],
+    lat: 42.65,
+    lng: 12.55,
+    minZoom: 4,
+    maxZoom: 6,
+    label: "🇮🇹 Italy / 🇻🇦 Vatican City / 🇸🇲 San Marino",
+    iconLabel: "🇮🇹🇻🇦🇸🇲",
+  },
+  {
+    id: "SG_MY",
+    codes: ["SG", "MY"],
+    lat: 2.75,
+    lng: 102.45,
+    minZoom: 4,
+    maxZoom: 6,
+    label: "🇸🇬 Singapore / 🇲🇾 Malaysia",
+    iconLabel: "🇸🇬🇲🇾",
   },
 ];
 const FEATURE_BOUNDS_CENTER_CACHE = new WeakMap();
@@ -875,6 +901,12 @@ function getFeatureArea(feature) {
 function getCountryButtonMinZoom(feature) {
   if (FEATURE_MIN_ZOOM_CACHE.has(feature)) return FEATURE_MIN_ZOOM_CACHE.get(feature);
 
+  const code = getIsoA2FromFeature(feature);
+  if (EARLY_COUNTRY_BUTTON_MIN_ZOOM[code]) {
+    FEATURE_MIN_ZOOM_CACHE.set(feature, EARLY_COUNTRY_BUTTON_MIN_ZOOM[code]);
+    return EARLY_COUNTRY_BUTTON_MIN_ZOOM[code];
+  }
+
   const area = getFeatureArea(feature);
   let minZoom = 5;
   if (area >= 280) minZoom = 2;
@@ -1094,11 +1126,16 @@ function CountrySearch({ countries, language, onSelectCountry, onMissingCountry 
 
 function CountryButtonMarkers({ geojson, friendVisitMap, selectedCountryCode, zoom, onSelectCountry }) {
   const markers = useMemo(() => {
+    const activeCombinedCodes = new Set(
+      COMBINED_SMALL_COUNTRY_MARKERS
+        .filter((marker) => zoom >= marker.minZoom && zoom <= marker.maxZoom)
+        .flatMap((marker) => marker.codes),
+    );
     const largestFeatureByCode = new Map();
 
     (geojson?.features || []).forEach((feature) => {
       const code = getIsoA2FromFeature(feature);
-      if (!code || SMALL_COUNTRY_CODES.has(code)) return;
+      if (!code || SMALL_COUNTRY_CODES.has(code) || activeCombinedCodes.has(code)) return;
 
       const current = largestFeatureByCode.get(code);
       if (!current || getFeatureArea(feature) > getFeatureArea(current)) {
@@ -1161,6 +1198,8 @@ function CountryButtonMarkers({ geojson, friendVisitMap, selectedCountryCode, zo
 }
 
 function SmallCountryHotspots({ friendVisitMap, selectedCountryCode, zoom, onSelectCountry }) {
+  const map = useMap();
+
   if (zoom < 4) return null;
 
   const combinedCodes = new Set(
@@ -1189,16 +1228,8 @@ function SmallCountryHotspots({ friendVisitMap, selectedCountryCode, zoom, onSel
           })}
           riseOnHover
           eventHandlers={{
-            click: (event) => {
-              const original = event.originalEvent || {};
-              onSelectCountry({
-                code: marker.codes[0],
-                flag: countryFlag(marker.codes[0]),
-                name: getCountryName(marker.codes[0], "en"),
-                x: original.clientX || 24,
-                y: original.clientY || 160,
-                showDetails: true,
-              });
+            click: () => {
+              map.setView([marker.lat, marker.lng], marker.maxZoom + 1, { animate: true });
             },
           }}
         >
