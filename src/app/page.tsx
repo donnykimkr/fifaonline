@@ -1,5 +1,5 @@
-import { NeonRunnerGame } from "@/components/neon-runner-game";
+import { ArcadeSoccerGame } from "@/components/arcade-soccer-game";
 
 export default function Home() {
-  return <NeonRunnerGame />;
+  return <ArcadeSoccerGame />;
 }

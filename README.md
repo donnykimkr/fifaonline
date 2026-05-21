@@ -1,8 +1,8 @@
 # Skyline Dash
 
-Skyline Dash is an ad-free browser game inspired by 3D tile runners. A ball moves forward automatically through a neon path while the player moves left and right, avoids gaps and moving obstacles, collects gems, and tries to reach the finish.
+Skyline Dash is an ad-free 3D arcade soccer game for the browser. You control one active player while AI teammates and opponents play around you. It supports Player vs AI Team, local 1v1 Team Mode, Google login through Supabase Auth, and an optional online leaderboard.
 
-Use Brave Browser as the primary browser for testing and playing Skyline Dash. Brave is fast, Chromium-based, better for privacy by default, and suitable for modern web game performance.
+Use Brave Browser as the primary browser for testing and playing. Brave is fast, Chromium-based, better for privacy by default, and suitable for modern WebGL game performance.
 
 ## Tech Stack
 
@@ -23,17 +23,21 @@ npm run dev
 
 Open `http://localhost:3000` in Brave Browser.
 
-Make sure the app runs locally before deploying. Supabase is optional for local play: if `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY` is missing, the game still works and the UI shows that online auth and leaderboard saving are disabled.
+Supabase is optional for local play. If `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY` is missing, matches still work and online login/leaderboard saving are disabled.
 
-## Recommended Browser
+## Controls
 
-Brave Browser is the recommended option for development testing, QA, and normal play.
+Player 1:
 
-- Fast Chromium-based rendering engine for modern WebGL games.
-- Better privacy defaults than many mainstream browsers.
-- Good compatibility with Next.js, Three.js, Supabase Auth, and Vercel-hosted apps.
+- `WASD` moves the cyan player
+- `Space` passes, shoots, or tackles near the ball
+- `Left Shift` sprints
 
-When testing gameplay, auth redirects, mobile emulation, and leaderboard behavior, use Brave Browser first.
+Player 2 in Local 1v1 Team Mode:
+
+- `Arrow Keys` move the rose player
+- `Enter` or `Right Shift` passes, shoots, or tackles near the ball
+- `/` or `Right Ctrl` sprints
 
 ## Environment Variables
 
@@ -54,7 +58,7 @@ Only use the Supabase anon key on the client. Do not expose service role keys.
 
 ## Supabase Setup
 
-Create a Supabase project, open the SQL editor, and run the SQL below. The same SQL is also saved in `supabase/leaderboard.sql`.
+Create a Supabase project, open the SQL editor, and run the SQL below. The same SQL is saved in `supabase/leaderboard.sql`.
 
 ```sql
 create extension if not exists pgcrypto;
@@ -64,17 +68,39 @@ create table if not exists leaderboard (
   user_id uuid not null references auth.users(id) on delete cascade,
   nickname text not null,
   score integer not null,
+  goals_scored integer not null default 0,
+  result text not null default 'draw',
   gems integer not null default 0,
   level integer not null default 1,
   created_at timestamptz default now(),
   constraint leaderboard_nickname_length check (char_length(nickname) between 2 and 16),
   constraint leaderboard_positive_score check (score > 0),
+  constraint leaderboard_nonnegative_goals check (goals_scored >= 0),
+  constraint leaderboard_valid_result check (result in ('win', 'lose', 'draw')),
   constraint leaderboard_nonnegative_gems check (gems >= 0),
   constraint leaderboard_positive_level check (level > 0)
 );
 
 alter table leaderboard
 add column if not exists user_id uuid references auth.users(id) on delete cascade;
+
+alter table leaderboard
+add column if not exists goals_scored integer not null default 0;
+
+alter table leaderboard
+add column if not exists result text not null default 'draw';
+
+alter table leaderboard
+drop constraint if exists leaderboard_nonnegative_goals;
+
+alter table leaderboard
+add constraint leaderboard_nonnegative_goals check (goals_scored >= 0);
+
+alter table leaderboard
+drop constraint if exists leaderboard_valid_result;
+
+alter table leaderboard
+add constraint leaderboard_valid_result check (result in ('win', 'lose', 'draw'));
 
 alter table leaderboard enable row level security;
 
@@ -93,9 +119,10 @@ to authenticated
 with check (
   auth.uid() is not null
   and user_id = auth.uid()
-  and
-  char_length(nickname) between 2 and 16
+  and char_length(nickname) between 2 and 16
   and score > 0
+  and goals_scored >= 0
+  and result in ('win', 'lose', 'draw')
   and gems >= 0
   and level > 0
 );
@@ -104,17 +131,15 @@ create index if not exists leaderboard_score_idx
 on leaderboard (score desc, created_at asc);
 ```
 
-The app validates nicknames as 2-16 characters and only submits positive integer scores.
+The app validates nicknames as 2-16 characters and only submits positive integer scores. Guests can play, but only authenticated users can upload online scores.
 
 ## Google OAuth Setup
 
-Skyline Dash uses Supabase Auth with Google OAuth. Guests can play without logging in, but only signed-in users can upload leaderboard scores. Scores are inserted with the authenticated `user_id`.
-
-1. In Supabase, go to Authentication → Providers.
+1. In Supabase, go to Authentication -> Providers.
 2. Enable Google.
 3. Create OAuth credentials in Google Cloud Console.
 4. Add the Google Client ID and Client Secret to the Supabase Google provider.
-5. In Supabase Authentication → URL Configuration, set:
+5. In Supabase Authentication -> URL Configuration, set:
    - Site URL for local testing: `http://localhost:3000`
    - Site URL for production: `https://skyline-dash.vercel.app`
    - Redirect URLs:
@@ -123,13 +148,9 @@ Skyline Dash uses Supabase Auth with Google OAuth. Guests can play without loggi
      - `https://skyline-dash.vercel.app`
      - `https://skyline-dash.vercel.app/**`
 
-If you deploy to a different Vercel domain, add that domain and wildcard redirect URL too.
-
-The app uses `signInWithOAuth({ provider: "google" })` client-side with the Supabase anon key only. Never expose a service role key in this app.
+If you deploy to a different Vercel domain, add that exact domain and wildcard redirect URL too.
 
 ## Connect Supabase To Vercel
-
-The project is prepared for the simplest Vercel connection path:
 
 1. Push this repo to GitHub.
 2. Create or open a Supabase project and run `supabase/leaderboard.sql`.
@@ -140,7 +161,7 @@ The project is prepared for the simplest Vercel connection path:
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 6. Deploy.
 
-If you use the Supabase integration from Vercel Marketplace, Supabase can synchronize environment variables to Vercel for connected projects. Confirm the public client variables above exist with the `NEXT_PUBLIC_` prefix, because Next.js only exposes client-side variables with that prefix.
+If you use the Supabase integration from Vercel Marketplace, Supabase can synchronize environment variables to Vercel for connected projects. Confirm the public client variables above exist with the `NEXT_PUBLIC_` prefix.
 
 For local development after linking Vercel:
 
@@ -150,22 +171,18 @@ npx vercel env pull .env.local
 npm run dev
 ```
 
-## Controls
-
-- Desktop: `A` / `Left Arrow` moves left, `D` / `Right Arrow` moves right.
-- Mobile: tap the left/right buttons or swipe horizontally.
-
 ## Testing Checklist
 
 Use Brave Browser for the primary test pass.
 
 1. Open `http://localhost:3000` in Brave Browser.
-2. Confirm Guest mode can start and finish a run.
-3. Confirm Guest mode cannot upload a leaderboard score.
-4. Sign in with Google through Supabase Auth.
-5. Confirm the signed-in display name or email appears.
-6. Save a score and confirm it appears in the leaderboard.
-7. Use the logout button and confirm the UI returns to Guest mode.
+2. Test Player vs AI Team: kickoff, movement, shooting, scoring, kickoff reset, timer, and end screen.
+3. Test Local 1v1 Team Mode: Player 1 and Player 2 movement, action buttons, scoring, and timer.
+4. Confirm Guest mode can play without crashing and cannot upload an online score.
+5. Sign in with Google through Supabase Auth.
+6. Confirm the signed-in display name or email appears.
+7. Save a Player vs AI score and confirm it appears in the leaderboard.
+8. Use the logout button and confirm the UI returns to Guest mode.
 
 ## Deploy On Vercel
 

@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Skyline Dash",
-  description: "A fast 3D tile-runner browser game with gems, hazards, and an optional Supabase leaderboard.",
+  description: "A 3D arcade soccer browser game with AI teammates, local 1v1, Google login, and an optional Supabase leaderboard.",
 };
 
 export default function RootLayout({
