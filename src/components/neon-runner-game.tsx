@@ -153,7 +153,7 @@ const THEMES: Theme[] = [
 const LEVEL_COUNT = 3;
 
 function buildLevel(id: number): Level {
-  const length = id === 1 ? 132 : id === 2 ? 156 : 184;
+  const length = id === 1 ? 430 : id === 2 ? 540 : 660;
   const cells = Array.from({ length }, () => [".", ".", ".", ".", "."]);
   const obstacles: Obstacle[] = [];
 
@@ -178,87 +178,108 @@ function buildLevel(id: number): Level {
   const add = (kind: ObstacleKind, row: number, lane: number, speed: number, phase: number, range = 1, lanes?: number[]) => {
     obstacles.push({ kind, row, lane, speed, phase, range, lanes });
   };
+  const addLaser = (row: number, lanes: number[], phase = 0) => {
+    add("laserCannon", row, 0, 1, phase, 1, lanes.slice(0, 3));
+  };
+  const section = (start: number, end: number, step: number, callback: (row: number, index: number) => void) => {
+    let index = 0;
+    for (let row = start; row < end; row += step) {
+      callback(row, index);
+      index += 1;
+    }
+  };
 
-  for (let row = 8; row < length - 6; row += id === 1 ? 10 : id === 2 ? 8 : 7) {
+  for (let row = 8; row < length - 6; row += id === 1 ? 13 : id === 2 ? 11 : 10) {
     gem(row, LANES[(row + id) % LANES.length]);
   }
 
   if (id === 1) {
-    [18, 34, 58, 82, 108].forEach((row, index) => hole(row, LANES[index % LANES.length]));
-    jump(24, -1, [-1, 0]);
-    narrow(22, [0, -1, -2]);
-    jump(48, 2, [1, 2], true);
-    narrow(46, [-1, 0, 1, 2]);
-    jump(76, -2, [-2, -1]);
-    narrow(73, [0, -1, -2]);
-    jump(103, 1, [0, 1], true);
-    narrow(100, [-1, 0, 1]);
-    [39, 40, 67, 91, 117].forEach((row, index) => falling(row, LANES[(index * 2) % LANES.length]));
-    [62, 63, 64, 95, 96].forEach((row, index) => narrow(row, index % 2 ? [-1, 0, 1] : [0, 1, 2]));
-    add("riser", 28, 0, 1.2, 0.2);
-    add("signalBlock", 42, -1, 1.4, 0.8);
-    add("wheel", 55, 0, 1.1, 1.6, 1.3);
-    add("airCrusher", 72, 1, 1.25, 0.4);
-    add("horizontalHammer", 94, 0, 1.1, 2.2, 1.7);
-    add("laserCannon", 114, 0, 1.15, 1.1, 1, [-2, -1, 1, 2]);
+    section(34, 170, 19, (row, index) => hole(row, LANES[(index + 1) % 5]));
+    section(68, 250, 31, (row, index) => {
+      narrow(row - 2, index % 2 ? [-2, -1, 0] : [0, 1, 2]);
+      jump(row, LANES[(index * 2 + 1) % 5], [LANES[(index * 2 + 1) % 5], LANES[(index * 2 + 2) % 5]], index > 2);
+    });
+    section(150, 335, 17, (row, index) => falling(row, LANES[(index * 2) % 5]));
+    section(220, 388, 29, (row, index) => narrow(row, index % 2 ? [-2, -1, 0] : [0, 1, 2]));
+    section(260, 406, 36, (row, index) => {
+      const lane = index % 2 ? -1 : 1;
+      narrow(row - 2, [lane - 1, lane, lane + 1].filter((value) => LANES.includes(value)));
+      jump(row, lane, [lane, Math.max(MIN_LANE, lane - 1)], true);
+    });
+    [
+      [46, 0, 1.1, 0.2],
+      [112, -1, 1.2, 0.8],
+      [178, 1, 1.25, 1.6],
+      [292, -2, 1.3, 0.4],
+    ].forEach(([row, lane, speed, phase]) => add("riser", row, lane, speed, phase));
+    [
+      [86, -1, 1.25, 0.6],
+      [202, 1, 1.3, 1.4],
+      [332, 0, 1.4, 2.3],
+    ].forEach(([row, lane, speed, phase]) => add("signalBlock", row, lane, speed, phase));
+    add("wheel", 132, 0, 1.15, 1.6, 1.3);
+    add("airCrusher", 238, 1, 1.25, 0.4);
+    add("horizontalHammer", 354, 0, 1.25, 2.2, 1.7);
+    addLaser(190, [-2, -1, 1], 0.2);
+    addLaser(312, [-1, 0, 2], 1.1);
+    addLaser(394, [-2, 0, 1], 2.0);
   } else if (id === 2) {
-    for (let row = 20; row < length - 12; row += 12) {
+    for (let row = 38; row < length - 20; row += 18) {
       const holeIndex = Math.floor(row / 4) % LANES.length;
       hole(row, LANES[holeIndex]);
       hole(row + 1, LANES[(holeIndex + 2) % LANES.length]);
     }
-    [
-      [24, 2, [1], true],
-      [45, -2, [-1, -2], false],
-      [68, 1, [1], true],
-      [92, -1, [-2, -1], true],
-      [119, 0, [0, 1], false],
-      [139, 2, [2], true],
-    ].forEach(([row, lane, lands, fall]) => jump(row as number, lane as number, lands as number[], fall as boolean));
-    [22, 43, 66, 89, 116, 136].forEach((row, index) => narrow(row, [LANES[(index + 1) % 5], LANES[(index + 2) % 5], LANES[(index + 3) % 5]]));
-    for (let row = 34; row < length - 10; row += 9) falling(row, LANES[(row + 1) % LANES.length]);
-    [54, 55, 56, 104, 105, 130, 131].forEach((row, index) => narrow(row, index % 2 ? [-2, -1, 0] : [0, 1, 2]));
-    add("riser", 18, -1, 1.45, 0.1);
-    add("verticalHammer", 31, 1, 1.35, 1.1);
-    add("laserCannon", 39, 0, 1.35, 0.2, 1, [-2, 0, 2]);
-    add("airCrusher", 59, -2, 1.5, 1.3);
-    add("floatingSpikes", 72, 1, 1, 0);
-    add("horizontalHammer", 84, 0, 1.45, 2.4, 2);
-    add("wheel", 99, 0, 1.55, 0.7, 1.7);
-    add("signalBlock", 111, -1, 1.7, 1.9);
-    add("slasher", 125, 0, 1.8, 1.2, 2.2);
-    add("laserCannon", 145, 0, 1.65, 2.1, 1, [-1, 0, 1]);
+    section(64, 500, 44, (row, index) => {
+      const lane = LANES[(index * 2 + 4) % 5];
+      narrow(row - 2, [lane, Math.max(MIN_LANE, lane - 1), Math.min(MAX_LANE, lane + 1)]);
+      jump(row, lane, [lane], index % 2 === 0);
+    });
+    section(95, 520, 13, (row, index) => falling(row, LANES[(index + 2) % 5]));
+    section(154, 498, 37, (row, index) => narrow(row, index % 2 ? [-2, -1, 0] : [0, 1, 2]));
+    section(260, 522, 52, (row, index) => narrow(row, index % 2 ? [-2, -1] : [1, 2]));
+    add("riser", 58, -1, 1.45, 0.1);
+    add("verticalHammer", 91, 1, 1.35, 1.1);
+    addLaser(122, [-2, 0, 2], 0.2);
+    add("airCrusher", 158, -2, 1.5, 1.3);
+    add("floatingSpikes", 192, 1, 1, 0);
+    add("horizontalHammer", 224, 0, 1.45, 2.4, 2);
+    add("wheel", 258, 0, 1.55, 0.7, 1.7);
+    add("signalBlock", 294, -1, 1.7, 1.9);
+    add("slasher", 328, 0, 1.8, 1.2, 2.2);
+    addLaser(364, [-1, 0, 1], 2.1);
+    add("airCrusher", 408, 2, 1.65, 0.8);
+    add("horizontalHammer", 452, 0, 1.7, 1.5, 2.15);
+    add("wheel", 496, 0, 1.8, 2.2, 2);
+    addLaser(516, [-2, 1, 2], 0.9);
   } else {
-    for (let row = 18; row < length - 8; row += 9) {
+    for (let row = 42; row < length - 12; row += 14) {
       hole(row, LANES[(row + 2) % 5]);
       if (row % 18 === 0) hole(row + 1, LANES[(row + 4) % 5]);
     }
-    [
-      [20, -2, [-2], true],
-      [38, 1, [0, 1], true],
-      [57, -1, [-1], true],
-      [79, 2, [1, 2], false],
-      [101, 0, [0], true],
-      [126, -2, [-2, -1], true],
-      [151, 2, [2], true],
-      [169, -1, [-1, 0], true],
-    ].forEach(([row, lane, lands, fall]) => jump(row as number, lane as number, lands as number[], fall as boolean));
-    [17, 36, 55, 76, 98, 123, 148, 166].forEach((row, index) => narrow(row, [LANES[index % 5], LANES[(index + 1) % 5], LANES[(index + 2) % 5]]));
-    for (let row = 28; row < length - 6; row += 6) falling(row, LANES[(row * 2) % 5]);
-    [65, 66, 67, 112, 113, 140, 141, 142, 162, 163].forEach((row, index) => narrow(row, index % 2 ? [-2, -1] : [1, 2]));
-    add("riser", 24, 0, 1.7, 0.4);
-    add("laserCannon", 32, 0, 1.8, 0.2, 1, [-2, -1, 1, 2]);
-    add("airCrusher", 45, 2, 1.7, 1.5);
-    add("verticalHammer", 53, -1, 1.8, 0.6);
-    add("horizontalHammer", 70, 0, 1.75, 2.2, 2.2);
-    add("floatingSpikes", 82, 1, 1, 0);
-    add("wheel", 91, 0, 1.85, 1.3, 2);
-    add("signalBlock", 106, -2, 2, 0.7);
-    add("slasher", 118, 0, 2.1, 1.6, 2.25);
-    add("laserCannon", 135, 0, 2, 2.5, 1, [-2, 0, 2]);
-    add("airCrusher", 150, -1, 1.95, 0.8);
-    add("horizontalHammer", 160, 0, 2.05, 1.1, 2.35);
-    add("slasher", 173, 0, 2.35, 2.6, 2.35);
+    section(70, 632, 39, (row, index) => {
+      const lane = LANES[(index * 3) % 5];
+      narrow(row - 2, [lane, Math.max(MIN_LANE, lane - 1), Math.min(MAX_LANE, lane + 1)]);
+      jump(row, lane, [lane], true);
+    });
+    section(88, 642, 9, (row, index) => falling(row, LANES[(index * 2 + 1) % 5]));
+    section(132, 620, 31, (row, index) => narrow(row, [LANES[index % 5], LANES[(index + 1) % 5], LANES[(index + 2) % 5]]));
+    section(250, 640, 47, (row, index) => narrow(row, index % 2 ? [-2, -1] : [1, 2]));
+    add("riser", 62, 0, 1.7, 0.4);
+    addLaser(96, [-2, -1, 1], 0.2);
+    add("airCrusher", 132, 2, 1.7, 1.5);
+    add("verticalHammer", 166, -1, 1.8, 0.6);
+    add("horizontalHammer", 204, 0, 1.75, 2.2, 2.2);
+    add("floatingSpikes", 242, 1, 1, 0);
+    add("wheel", 278, 0, 1.85, 1.3, 2);
+    add("signalBlock", 316, -2, 2, 0.7);
+    add("slasher", 354, 0, 2.1, 1.6, 2.25);
+    addLaser(392, [-2, 0, 2], 2.5);
+    add("airCrusher", 432, -1, 1.95, 0.8);
+    add("horizontalHammer", 474, 0, 2.05, 1.1, 2.35);
+    add("slasher", 514, 0, 2.35, 2.6, 2.35);
+    addLaser(548, [-1, 1, 2], 1.4);
+    add("wheel", 586, 0, 2.2, 2.8, 2.2);
+    add("verticalHammer", 620, 2, 2.1, 1.7);
   }
 
   const rows: Row[] = [];
@@ -284,7 +305,7 @@ function buildLevel(id: number): Level {
     rows,
     gems,
     obstacles,
-    speed: id === 1 ? 12.4 : id === 2 ? 14.2 : 16.1,
+    speed: id === 1 ? 13.2 : id === 2 ? 15.2 : 17.2,
     theme: THEMES[id - 1] ?? THEMES[THEMES.length - 1],
   };
 }
@@ -358,17 +379,22 @@ function createObstacleGroup(obstacle: Obstacle, theme: Theme) {
     group.add(bar);
   }
   if (obstacle.kind === "laserCannon") {
-    const beam = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH * 5.2, 0.16, 0.28), danger);
-    beam.name = "beam";
-    beam.position.y = 1.08;
-    const warningLine = new THREE.Mesh(new THREE.BoxGeometry(LANE_WIDTH * 5.2, 0.04, 0.34), warning);
-    warningLine.name = "warning";
-    warningLine.position.y = 0.34;
+    LANES.forEach((lane) => {
+      const targeted = (obstacle.lanes ?? []).includes(lane);
+      const material = targeted ? danger : safe;
+      const beam = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.16, 3.25), material);
+      beam.name = `beam-${lane}`;
+      beam.position.set(laneToX(lane), 1.08, 0);
+      const warningLine = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.05, 3.45), targeted ? warning : safe);
+      warningLine.name = `warning-${lane}`;
+      warningLine.position.set(laneToX(lane), 0.34, 0);
+      group.add(beam, warningLine);
+    });
     const cannonA = new THREE.Mesh(new THREE.BoxGeometry(0.45, 1.1, 0.7), dark);
     cannonA.position.set(laneToX(-2.45), 0.8, 0);
     const cannonB = new THREE.Mesh(new THREE.BoxGeometry(0.45, 1.1, 0.7), dark);
     cannonB.position.set(laneToX(2.45), 0.8, 0);
-    group.add(beam, warningLine, cannonA, cannonB);
+    group.add(cannonA, cannonB);
   }
   if (obstacle.kind === "signalBlock") {
     const block = new THREE.Mesh(new THREE.BoxGeometry(1.45, 1.45, 1.45), safe);
@@ -451,15 +477,26 @@ function updateObstacleGroup(obstacle: Obstacle, group: THREE.Group, time: numbe
   }
 
   if (obstacle.kind === "laserCannon") {
-    const cycle = ((phaseTime % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
-    const warning = cycle > Math.PI * 0.88 && cycle < Math.PI * 1.15;
-    const active = cycle >= Math.PI * 1.15 && cycle < Math.PI * 1.55;
-    const beam = group.getObjectByName("beam");
-    const warningLine = group.getObjectByName("warning");
+    const targetedLanes = obstacle.lanes ?? [];
+    const approach = -zDistance;
+    const warning = approach < 24 && approach > 4.2;
+    const active = approach <= 4.2 && approach > -1.05;
     group.position.x = 0;
-    if (beam) beam.visible = active;
-    if (warningLine) warningLine.visible = warning || active;
-    hit = active && Math.abs(zDistance) < 0.9 && (obstacle.lanes ?? LANES).includes(Math.round(ballLane)) && ballY < 2.0;
+    LANES.forEach((lane) => {
+      const targeted = targetedLanes.includes(lane);
+      const beam = group.getObjectByName(`beam-${lane}`);
+      const warningLine = group.getObjectByName(`warning-${lane}`);
+      if (beam) beam.visible = targeted && active;
+      if (warningLine) {
+        warningLine.visible = warning || active;
+        const mesh = warningLine as THREE.Mesh;
+        if (mesh.material instanceof THREE.MeshStandardMaterial) {
+          mesh.material.emissiveIntensity = targeted ? (warning ? 1.8 + Math.sin(seconds * 18) * 0.65 : 1.1) : 0.65;
+          mesh.material.opacity = targeted ? 1 : 0.55;
+        }
+      }
+    });
+    hit = active && Math.abs(zDistance) < 1.05 && targetedLanes.includes(Math.round(ballLane)) && ballY < 2.0;
   }
 
   if (obstacle.kind === "signalBlock") {
@@ -537,6 +574,18 @@ export function NeonRunnerGame() {
 
   const level = useMemo(() => buildLevel(levelId), [levelId]);
   const gemIds = useMemo(() => new Set(level.gems.map((gem) => gem.id)), [level.gems]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const requestedLevel = Number(new URLSearchParams(window.location.search).get("level"));
+    if (!Number.isInteger(requestedLevel)) return undefined;
+    const timer = window.setTimeout(() => {
+      const boundedLevel = Math.max(1, Math.min(LEVEL_COUNT, requestedLevel));
+      runtimeRef.current.levelId = boundedLevel;
+      setLevelId(boundedLevel);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   const syncState = useCallback((next: GameState) => {
     runtimeRef.current.state = next;
@@ -802,7 +851,9 @@ export function NeonRunnerGame() {
       if (!airborne) runtime.jumpStart = -1;
 
       if (runtime.state === "playing") {
-        runtime.progress += level.speed * delta;
+        const speedBoost = 1 + (runtime.progress / ((level.rows.length - 1) * TILE_SIZE)) * (0.1 + level.id * 0.06);
+        const currentSpeed = level.speed * speedBoost;
+        runtime.progress += currentSpeed * delta;
         runtime.lane += (runtime.targetLane - runtime.lane) * Math.min(1, delta * 12);
         const currentRow = Math.round(runtime.progress / TILE_SIZE);
         const row = level.rows[currentRow];
@@ -862,7 +913,8 @@ export function NeonRunnerGame() {
       }
 
       active.ball.position.set(laneToX(runtime.lane), BALL_Y + jumpLift, -runtime.progress);
-      active.ball.rotation.x -= (level.speed * delta) / BALL_RADIUS;
+      const displaySpeedBoost = 1 + (runtime.progress / ((level.rows.length - 1) * TILE_SIZE)) * (0.1 + level.id * 0.06);
+      active.ball.rotation.x -= (level.speed * displaySpeedBoost * delta) / BALL_RADIUS;
       active.ball.rotation.z += (runtime.targetLane - runtime.lane) * delta * 2.6;
       active.camera.position.x += (active.ball.position.x * 0.23 - active.camera.position.x) * 0.06;
       active.camera.position.z += (active.ball.position.z + 15 - active.camera.position.z) * 0.08;
