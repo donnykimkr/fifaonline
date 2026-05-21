@@ -20,6 +20,7 @@ type PlayerBody = {
   vel: THREE.Vector3;
   mesh: THREE.Group;
   stamina: number;
+  runPhase: number;
   controlledBy?: "p1" | "p2";
 };
 
@@ -38,7 +39,7 @@ type MatchRuntime = {
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
-  ball: THREE.Mesh;
+  ball: THREE.Group;
   players: PlayerBody[];
   frame: number;
   lastTime: number;
@@ -50,10 +51,13 @@ type MatchRuntime = {
   timeLeft: number;
   cooldown: number;
   possession: TeamId | null;
+  audio: AudioContext | null;
+  lastKickSound: number;
+  lastCheerSound: number;
 };
 
-const FIELD_W = 56;
-const FIELD_L = 84;
+const FIELD_W = 64;
+const FIELD_L = 96;
 const GOAL_W = 16;
 const PLAYER_RADIUS = 1.15;
 const BALL_RADIUS = 0.72;
@@ -61,6 +65,8 @@ const MATCH_SECONDS = 150;
 
 const HOME_COLOR = "#38bdf8";
 const AWAY_COLOR = "#fb7185";
+const HOME_KEEPER_COLOR = "#facc15";
+const AWAY_KEEPER_COLOR = "#a78bfa";
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -74,18 +80,53 @@ function scoreMatch(goalsFor: number, goalsAgainst: number) {
   return Math.max(1, goalsFor * 1000 + Math.max(0, goalsFor - goalsAgainst) * 500 + (goalsFor > goalsAgainst ? 2000 : goalsFor === goalsAgainst ? 750 : 100));
 }
 
-function makeKit(color: string, accent: string) {
+function makeKit(team: TeamId, role: PlayerRole, accent: string) {
+  const color = role === "keeper" ? (team === "home" ? HOME_KEEPER_COLOR : AWAY_KEEPER_COLOR) : (team === "home" ? HOME_COLOR : AWAY_COLOR);
+  const trim = team === "home" ? "#075985" : "#881337";
   const group = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.82, 1.2, 5, 10),
-    new THREE.MeshStandardMaterial({ color, roughness: 0.45, metalness: 0.08 }),
+  const bodyRoot = new THREE.Group();
+  bodyRoot.name = "body-root";
+
+  const torso = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.66, 1.08, 4, 8),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.48, metalness: 0.05 }),
   );
-  body.position.y = 1.25;
+  torso.position.y = 1.45;
+  torso.castShadow = true;
+
   const head = new THREE.Mesh(
-    new THREE.SphereGeometry(0.42, 14, 14),
+    new THREE.SphereGeometry(0.36, 10, 10),
     new THREE.MeshStandardMaterial({ color: "#f8d6b5", roughness: 0.5 }),
   );
-  head.position.y = 2.45;
+  head.position.y = 2.35;
+  head.castShadow = true;
+
+  const armMaterial = new THREE.MeshStandardMaterial({ color: trim, roughness: 0.55 });
+  [-1, 1].forEach((side) => {
+    const arm = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.7, 3, 6), armMaterial);
+    arm.position.set(side * 0.68, 1.43, 0);
+    arm.rotation.z = side * 0.16;
+    arm.castShadow = true;
+    bodyRoot.add(arm);
+  });
+
+  const legMaterial = new THREE.MeshStandardMaterial({ color: role === "keeper" ? "#111827" : "#0f172a", roughness: 0.58 });
+  [-1, 1].forEach((side) => {
+    const pivot = new THREE.Group();
+    pivot.name = side < 0 ? "left-leg" : "right-leg";
+    pivot.position.set(side * 0.28, 0.88, 0);
+    const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.17, 0.85, 3, 6), legMaterial);
+    leg.position.y = -0.42;
+    leg.castShadow = true;
+    const boot = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.13, 0.42), new THREE.MeshStandardMaterial({ color: "#020617", roughness: 0.5 }));
+    boot.position.set(0, -0.9, 0.09);
+    boot.castShadow = true;
+    pivot.add(leg, boot);
+    bodyRoot.add(pivot);
+  });
+
+  bodyRoot.add(torso, head);
+
   const marker = new THREE.Mesh(
     new THREE.TorusGeometry(1.1, 0.05, 8, 32),
     new THREE.MeshBasicMaterial({ color: accent }),
@@ -94,8 +135,40 @@ function makeKit(color: string, accent: string) {
   marker.position.y = 0.08;
   marker.name = "control-marker";
   marker.visible = false;
-  group.add(body, head, marker);
+  group.add(bodyRoot, marker);
   return group;
+}
+
+function createSoccerBall() {
+  const ball = new THREE.Group();
+  const white = new THREE.Mesh(
+    new THREE.SphereGeometry(BALL_RADIUS, 24, 18),
+    new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.34, metalness: 0.02 }),
+  );
+  white.castShadow = true;
+  ball.add(white);
+
+  const patchMaterial = new THREE.MeshBasicMaterial({ color: "#111827", side: THREE.DoubleSide });
+  const points = [
+    new THREE.Vector3(0, 1, 0),
+    new THREE.Vector3(0, -1, 0),
+    new THREE.Vector3(1, 0.15, 0),
+    new THREE.Vector3(-1, 0.15, 0),
+    new THREE.Vector3(0, 0.15, 1),
+    new THREE.Vector3(0, 0.15, -1),
+    new THREE.Vector3(0.72, -0.45, 0.72),
+    new THREE.Vector3(-0.72, -0.45, 0.72),
+    new THREE.Vector3(0.72, -0.45, -0.72),
+    new THREE.Vector3(-0.72, -0.45, -0.72),
+  ];
+  points.forEach((point) => {
+    const normal = point.normalize();
+    const patch = new THREE.Mesh(new THREE.CircleGeometry(0.18, 5), patchMaterial);
+    patch.position.copy(normal.multiplyScalar(BALL_RADIUS + 0.01));
+    patch.lookAt(normal.clone().multiplyScalar(2));
+    ball.add(patch);
+  });
+  return ball;
 }
 
 function addFieldMarking(scene: THREE.Scene, x: number, z: number, w: number, h: number) {
@@ -111,8 +184,62 @@ function addFieldMarking(scene: THREE.Scene, x: number, z: number, w: number, h:
   scene.add(top, bottom, left, right);
 }
 
+function addStadium(scene: THREE.Scene) {
+  const standMaterial = new THREE.MeshStandardMaterial({ color: "#10251a", roughness: 0.78 });
+  const railMaterial = new THREE.MeshStandardMaterial({ color: "#d1fae5", roughness: 0.38, metalness: 0.2 });
+  [
+    { x: 0, z: FIELD_L / 2 + 12, w: FIELD_W + 18, d: 10 },
+    { x: 0, z: -FIELD_L / 2 - 12, w: FIELD_W + 18, d: 10 },
+    { x: FIELD_W / 2 + 11, z: 0, w: 9, d: FIELD_L + 18 },
+    { x: -FIELD_W / 2 - 11, z: 0, w: 9, d: FIELD_L + 18 },
+  ].forEach((stand) => {
+    for (let row = 0; row < 3; row += 1) {
+      const tier = new THREE.Mesh(new THREE.BoxGeometry(stand.w, 1.4 + row * 0.8, stand.d), standMaterial);
+      tier.position.set(stand.x, 0.7 + row * 0.7, stand.z + Math.sign(stand.z || 1) * row * 2);
+      if (Math.abs(stand.x) > FIELD_W / 2) tier.position.x = stand.x + Math.sign(stand.x) * row * 2;
+      tier.receiveShadow = true;
+      scene.add(tier);
+    }
+  });
+
+  const crowdGeometry = new THREE.BoxGeometry(0.55, 0.55, 0.55);
+  const crowdMaterial = new THREE.MeshStandardMaterial({ color: "#9ff6d0", roughness: 0.65 });
+  const crowd = new THREE.InstancedMesh(crowdGeometry, crowdMaterial, 240);
+  const matrix = new THREE.Matrix4();
+  let index = 0;
+  for (let side = -1; side <= 1; side += 2) {
+    for (let i = 0; i < 60; i += 1) {
+      const x = -FIELD_W / 2 - 6 + (i % 30) * ((FIELD_W + 12) / 29);
+      const z = side * (FIELD_L / 2 + 9 + Math.floor(i / 30) * 2.2);
+      const y = 2.6 + Math.floor(i / 30) * 1.2 + ((i * 7) % 5) * 0.08;
+      matrix.makeTranslation(x, y, z);
+      crowd.setMatrixAt(index, matrix);
+      index += 1;
+    }
+    for (let i = 0; i < 60; i += 1) {
+      const x = side * (FIELD_W / 2 + 8 + Math.floor(i / 30) * 2.1);
+      const z = -FIELD_L / 2 - 5 + (i % 30) * ((FIELD_L + 10) / 29);
+      const y = 2.6 + Math.floor(i / 30) * 1.2 + ((i * 11) % 5) * 0.08;
+      matrix.makeTranslation(x, y, z);
+      crowd.setMatrixAt(index, matrix);
+      index += 1;
+    }
+  }
+  scene.add(crowd);
+
+  const railA = new THREE.Mesh(new THREE.BoxGeometry(FIELD_W + 18, 0.18, 0.18), railMaterial);
+  railA.position.set(0, 3.8, FIELD_L / 2 + 6.2);
+  const railB = railA.clone();
+  railB.position.z = -FIELD_L / 2 - 6.2;
+  const railC = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.18, FIELD_L + 18), railMaterial);
+  railC.position.set(FIELD_W / 2 + 6.2, 3.8, 0);
+  const railD = railC.clone();
+  railD.position.x = -FIELD_W / 2 - 6.2;
+  scene.add(railA, railB, railC, railD);
+}
+
 function createPlayer(id: string, team: TeamId, role: PlayerRole, x: number, z: number, controlledBy?: "p1" | "p2") {
-  const mesh = makeKit(team === "home" ? HOME_COLOR : AWAY_COLOR, controlledBy === "p2" ? "#fef08a" : "#ffffff");
+  const mesh = makeKit(team, role, controlledBy === "p2" ? "#fef08a" : "#ffffff");
   mesh.position.set(x, 0, z);
   const marker = mesh.getObjectByName("control-marker");
   if (marker) marker.visible = Boolean(controlledBy);
@@ -125,21 +252,36 @@ function createPlayer(id: string, team: TeamId, role: PlayerRole, x: number, z: 
     vel: new THREE.Vector3(),
     mesh,
     stamina: 1,
+    runPhase: 0,
     controlledBy,
   } satisfies PlayerBody;
 }
 
 function playerStart(mode: GameMode) {
-  return [
-    createPlayer("home-gk", "home", "keeper", 0, FIELD_L / 2 - 4),
-    createPlayer("home-1", "home", "field", -13, 18, "p1"),
-    createPlayer("home-2", "home", "field", 0, 27),
-    createPlayer("home-3", "home", "field", 13, 18),
-    createPlayer("away-gk", "away", "keeper", 0, -FIELD_L / 2 + 4),
-    createPlayer("away-1", "away", "field", -13, -18, mode === "local" ? "p2" : undefined),
-    createPlayer("away-2", "away", "field", 0, -27),
-    createPlayer("away-3", "away", "field", 13, -18),
+  const rows = [
+    { z: 34, xs: [-20, -7, 7, 20] },
+    { z: 14, xs: [-18, 0, 18] },
+    { z: -8, xs: [-10, 10] },
+    { z: -26, xs: [0] },
   ];
+  const players: PlayerBody[] = [createPlayer("home-gk", "home", "keeper", 0, FIELD_L / 2 - 4)];
+  let homeIndex = 1;
+  rows.forEach((row) => {
+    row.xs.forEach((x) => {
+      players.push(createPlayer(`home-${homeIndex}`, "home", "field", x, row.z, homeIndex === 5 ? "p1" : undefined));
+      homeIndex += 1;
+    });
+  });
+
+  players.push(createPlayer("away-gk", "away", "keeper", 0, -FIELD_L / 2 + 4));
+  let awayIndex = 1;
+  rows.forEach((row) => {
+    row.xs.forEach((x) => {
+      players.push(createPlayer(`away-${awayIndex}`, "away", "field", -x, -row.z, mode === "local" && awayIndex === 5 ? "p2" : undefined));
+      awayIndex += 1;
+    });
+  });
+  return players;
 }
 
 export function ArcadeSoccerGame() {
@@ -200,6 +342,8 @@ export function ArcadeSoccerGame() {
       player.pos.copy(player.home);
       player.vel.set(0, 0, 0);
       player.mesh.position.copy(player.pos);
+      player.runPhase = 0;
+      animatePlayer(player, 0);
     });
     active.ballPos.set(0, BALL_RADIUS, 0);
     active.ballVel.set(0, 0, servingTeam === "home" ? -6 : 6);
@@ -210,6 +354,7 @@ export function ArcadeSoccerGame() {
   const startMatch = useCallback((nextMode = mode) => {
     const active = sceneRef.current;
     if (!active) return;
+    ensureAudio(active);
     active.mode = nextMode;
     active.state = "playing";
     active.score = { home: 0, away: 0 };
@@ -342,6 +487,9 @@ export function ArcadeSoccerGame() {
     scene.add(centerCircle);
     addFieldMarking(scene, 0, FIELD_L / 2 - 11, 26, 15);
     addFieldMarking(scene, 0, -FIELD_L / 2 + 11, 26, 15);
+    addFieldMarking(scene, 0, FIELD_L / 2 - 20, 44, 30);
+    addFieldMarking(scene, 0, -FIELD_L / 2 + 20, 44, 30);
+    addStadium(scene);
 
     const goalMat = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.35 });
     [-1, 1].forEach((side) => {
@@ -355,11 +503,7 @@ export function ArcadeSoccerGame() {
       scene.add(crossbar, postA, postB);
     });
 
-    const ball = new THREE.Mesh(
-      new THREE.SphereGeometry(BALL_RADIUS, 24, 24),
-      new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.28, metalness: 0.05 }),
-    );
-    ball.castShadow = true;
+    const ball = createSoccerBall();
     scene.add(ball);
 
     const players = playerStart("ai");
@@ -381,6 +525,9 @@ export function ArcadeSoccerGame() {
       timeLeft: MATCH_SECONDS,
       cooldown: 0,
       possession: null,
+      audio: null,
+      lastKickSound: 0,
+      lastCheerSound: 0,
     };
 
     const onResize = () => {
@@ -462,7 +609,7 @@ export function ArcadeSoccerGame() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-black tracking-normal sm:text-4xl">Arcade Soccer 3D</h1>
-            <p className="mt-1 text-sm text-emerald-100/70">3v3 team soccer · one active player · AI teammates</p>
+            <p className="mt-1 text-sm text-emerald-100/70">11v11 arcade soccer · one active player · AI teammates</p>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             <Metric label="Home" value={score.home} color="text-cyan-200" />
@@ -505,7 +652,7 @@ export function ArcadeSoccerGame() {
               <div>
                 <h2 className="text-xl font-black">{matchState === "ended" ? `${resultText} ${score.home}-${score.away}` : "Choose match mode"}</h2>
                 <p className="text-sm text-white/65">
-                  {matchState === "ended" ? `Score value ${matchScore}` : "Fast 3D soccer with simple shapes, readable AI, and arcade controls."}
+                  {matchState === "ended" ? `Score value ${matchScore}` : "Fast 11v11 soccer with a lightweight stadium, readable AI, and arcade controls."}
                 </p>
               </div>
             </div>
@@ -598,6 +745,7 @@ function updateMatch(active: MatchRuntime, keys: Set<string>, dt: number) {
     player.pos.addScaledVector(player.vel, dt);
     clampPlayer(player);
     player.mesh.position.copy(player.pos);
+    animatePlayer(player, dt);
     if (player.vel.lengthSq() > 0.2) player.mesh.lookAt(player.pos.x + player.vel.x, 0, player.pos.z + player.vel.z);
   });
 
@@ -616,6 +764,7 @@ function updateMatch(active: MatchRuntime, keys: Set<string>, dt: number) {
       const push = Math.max(4, player.vel.length() * 0.85);
       ballVel.x += normal.x * push * dt * 8;
       ballVel.z += normal.z * push * dt * 8;
+      playKickSound(active, 0.45);
     }
   });
 
@@ -630,11 +779,66 @@ function updateMatch(active: MatchRuntime, keys: Set<string>, dt: number) {
   if (Math.abs(ball.z) > FIELD_L / 2 && Math.abs(ball.x) < GOAL_W / 2 && active.cooldown <= 0) {
     const scoredBy: TeamId = ball.z < 0 ? "home" : "away";
     active.score[scoredBy] += 1;
+    playGoalSound(active);
     resetRuntime(active, scoredBy === "home" ? "away" : "home");
   } else if (Math.abs(ball.z) > FIELD_L / 2) {
     ball.z = clamp(ball.z, -FIELD_L / 2, FIELD_L / 2);
     ballVel.z *= -0.48;
   }
+}
+
+function animatePlayer(player: PlayerBody, dt: number) {
+  const speed = player.vel.length();
+  player.runPhase += speed * dt * 5.2;
+  const stride = speed > 0.35 ? Math.sin(player.runPhase) * 0.65 : 0;
+  const bodyRoot = player.mesh.getObjectByName("body-root");
+  const leftLeg = player.mesh.getObjectByName("left-leg");
+  const rightLeg = player.mesh.getObjectByName("right-leg");
+  if (bodyRoot) {
+    bodyRoot.rotation.x = speed > 0.35 ? -0.14 : 0;
+    bodyRoot.rotation.z = clamp(-player.vel.x * 0.018, -0.16, 0.16);
+  }
+  if (leftLeg) leftLeg.rotation.x = stride;
+  if (rightLeg) rightLeg.rotation.x = -stride;
+}
+
+function ensureAudio(active: MatchRuntime) {
+  if (active.audio || typeof window === "undefined") return;
+  const audioWindow = window as typeof window & { webkitAudioContext?: typeof AudioContext };
+  const AudioContextClass = audioWindow.AudioContext || audioWindow.webkitAudioContext;
+  if (!AudioContextClass) return;
+  active.audio = new AudioContextClass();
+}
+
+function playTone(active: MatchRuntime, frequency: number, duration: number, volume: number, type: OscillatorType = "sine") {
+  if (!active.audio) return;
+  const now = active.audio.currentTime;
+  const oscillator = active.audio.createOscillator();
+  const gain = active.audio.createGain();
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(frequency, now);
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(volume, now + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  oscillator.connect(gain);
+  gain.connect(active.audio.destination);
+  oscillator.start(now);
+  oscillator.stop(now + duration + 0.02);
+}
+
+function playKickSound(active: MatchRuntime, volume = 0.35) {
+  const now = performance.now();
+  if (now - active.lastKickSound < 110) return;
+  active.lastKickSound = now;
+  playTone(active, 92, 0.08, 0.035 * volume, "triangle");
+}
+
+function playGoalSound(active: MatchRuntime) {
+  const now = performance.now();
+  if (now - active.lastCheerSound < 900) return;
+  active.lastCheerSound = now;
+  playTone(active, 392, 0.18, 0.028, "sine");
+  window.setTimeout(() => playTone(active, 523, 0.22, 0.022, "sine"), 90);
 }
 
 function playerInput(keys: Set<string>, player: "p1" | "p2") {
@@ -706,6 +910,7 @@ function handleAction(player: PlayerBody | undefined, pressed: boolean, active: 
   active.ballVel.x += toGoal.x * power;
   active.ballVel.z += toGoal.z * power;
   active.cooldown = 0.22;
+  playKickSound(active, 1);
 }
 
 function resetRuntime(active: MatchRuntime, servingTeam: TeamId) {
@@ -713,6 +918,8 @@ function resetRuntime(active: MatchRuntime, servingTeam: TeamId) {
     player.pos.copy(player.home);
     player.vel.set(0, 0, 0);
     player.mesh.position.copy(player.pos);
+    player.runPhase = 0;
+    animatePlayer(player, 0);
   });
   active.ballPos.set(0, BALL_RADIUS, 0);
   active.ballVel.set(0, 0, servingTeam === "home" ? -7 : 7);
