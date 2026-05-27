@@ -3,8 +3,11 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Skyline Dash",
+  title: "Fifa Online",
   description: "A 3D arcade soccer browser game with AI teammates, local 1v1, Google login, and an optional Supabase leaderboard.",
+  icons: {
+    icon: "/favicon.svg",
+  },
 };
 
 export default function RootLayout({
