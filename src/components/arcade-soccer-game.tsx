@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import * as THREE from "three";
 import type { User } from "@supabase/supabase-js";
 import { LogOut, Play, RotateCcw, Trophy, UserCircle, Users } from "lucide-react";
@@ -51,6 +51,18 @@ type PlayerBody = {
 
 type BallState = "loose" | "possessed" | "kicked";
 type KickStyle = "short" | "long" | "through" | "low-through" | "shot" | "driven" | "finesse" | "chip";
+
+type PlayerInputState = {
+  dir: THREE.Vector3;
+  sprint: boolean;
+  speedScale?: number;
+};
+
+type VirtualControls = {
+  dir: THREE.Vector3;
+  strength: number;
+  sprint: boolean;
+};
 
 type ScoreRow = {
   id: string;
@@ -923,6 +935,8 @@ export function ArcadeSoccerGame() {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const keysRef = useRef(new Set<string>());
   const sceneRef = useRef<MatchRuntime | null>(null);
+  const virtualControlsRef = useRef<VirtualControls>({ dir: new THREE.Vector3(), strength: 0, sprint: false });
+  const joystickPointerRef = useRef<number | null>(null);
 
   const [mode, setMode] = useState<GameMode>("ai");
   const [matchState, setMatchState] = useState<MatchState>("menu");
@@ -936,6 +950,9 @@ export function ArcadeSoccerGame() {
   const [user, setUser] = useState<User | null>(null);
   const [authStatus, setAuthStatus] = useState("");
   const [firstPerson, setFirstPerson] = useState(false);
+  const [showTouchControls, setShowTouchControls] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [joystickKnob, setJoystickKnob] = useState({ x: 0, y: 0 });
   const firstPersonRef = useRef(false);
   const firstPersonYawRef = useRef(0);
 
@@ -981,6 +998,76 @@ export function ArcadeSoccerGame() {
     if (!active || !player || active.state !== "playing" || active.phase !== "open") return;
     attemptTackle(player, active);
   }, []);
+
+  const toggleFirstPerson = useCallback(() => {
+    firstPersonRef.current = !firstPersonRef.current;
+    const active = sceneRef.current;
+    const controlled = active?.players.find((player) => player.controlledBy === "p1");
+    if (firstPersonRef.current && controlled) firstPersonYawRef.current = controlled.heading;
+    setFirstPerson(firstPersonRef.current);
+  }, []);
+
+  const switchControlledPlayer = useCallback(() => {
+    const active = sceneRef.current;
+    if (!active || active.state !== "playing") return;
+    const current = active.players.find((player) => player.controlledBy === "p1");
+    const flatBall = new THREE.Vector3(active.ballPos.x, 0, active.ballPos.z);
+    const candidates = active.players
+      .filter((player) => player.team === "home" && player.role !== "keeper" && !player.sentOff && player.id !== current?.id)
+      .sort((a, b) => a.pos.distanceTo(flatBall) - b.pos.distanceTo(flatBall));
+    const next = candidates[0];
+    if (!next) return;
+    if (current) {
+      current.controlledBy = undefined;
+      const marker = current.mesh.getObjectByName("control-marker");
+      if (marker) marker.visible = false;
+    }
+    next.controlledBy = "p1";
+    const marker = next.mesh.getObjectByName("control-marker");
+    if (marker) marker.visible = true;
+    firstPersonYawRef.current = next.heading;
+  }, []);
+
+  const requestGameFullscreen = useCallback(async () => {
+    if (typeof document === "undefined") return;
+    const root = mountRef.current?.parentElement ?? document.documentElement;
+    type FullscreenElement = HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void> | void;
+      msRequestFullscreen?: () => Promise<void> | void;
+    };
+    const target = root as FullscreenElement;
+    try {
+      if (!document.fullscreenElement) {
+        const request = target.requestFullscreen ?? target.webkitRequestFullscreen ?? target.msRequestFullscreen;
+        await request?.call(target);
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch {
+      // Mobile browsers may reject fullscreen unless this is triggered by a direct tap.
+    }
+  }, []);
+
+  const performMobileAction = useCallback((action: "pass" | "shoot" | "tackle" | "switch" | "first-person" | "fullscreen") => {
+    const active = sceneRef.current;
+    const p1 = active?.players.find((player) => player.controlledBy === "p1");
+    if (action === "fullscreen") {
+      void requestGameFullscreen();
+      return;
+    }
+    if (action === "first-person") {
+      toggleFirstPerson();
+      return;
+    }
+    if (action === "switch") {
+      switchControlledPlayer();
+      return;
+    }
+    if (!active || !p1 || active.state !== "playing" || active.phase !== "open") return;
+    if (action === "pass") performPass(p1, active, "short");
+    if (action === "shoot") shoot(p1, active, "shot");
+    if (action === "tackle") attemptTackle(p1, active);
+  }, [requestGameFullscreen, switchControlledPlayer, toggleFirstPerson]);
 
   const resetPositions = useCallback((servingTeam: TeamId = "home") => {
     const active = sceneRef.current;
@@ -1029,9 +1116,37 @@ export function ArcadeSoccerGame() {
     active.lastTouchPlayerId = null;
   }, []);
 
+  const updateJoystickFromPointer = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const radius = rect.width / 2;
+    const rawX = event.clientX - centerX;
+    const rawY = event.clientY - centerY;
+    const distance = Math.min(Math.hypot(rawX, rawY), radius);
+    const angle = Math.atan2(rawY, rawX);
+    const knobX = Math.cos(angle) * distance;
+    const knobY = Math.sin(angle) * distance;
+    const strength = clamp(distance / radius, 0, 1);
+    const dir = new THREE.Vector3(knobX / radius, 0, knobY / radius);
+    if (dir.lengthSq() > 0.01) dir.normalize();
+    else dir.set(0, 0, 0);
+    virtualControlsRef.current.dir.copy(dir);
+    virtualControlsRef.current.strength = strength;
+    setJoystickKnob({ x: knobX, y: knobY });
+  }, []);
+
+  const releaseJoystick = useCallback(() => {
+    joystickPointerRef.current = null;
+    virtualControlsRef.current.dir.set(0, 0, 0);
+    virtualControlsRef.current.strength = 0;
+    setJoystickKnob({ x: 0, y: 0 });
+  }, []);
+
   const startMatch = useCallback((nextMode = mode) => {
     const active = sceneRef.current;
     if (!active) return;
+    if (showTouchControls) void requestGameFullscreen();
     ensureAudio(active);
     active.mode = nextMode;
     active.state = "playing";
@@ -1060,7 +1175,7 @@ export function ArcadeSoccerGame() {
     active.restartActorId = kickoffTaker(active.players, "home", active.restartSpot)?.id ?? null;
     stageKickoffShape(active);
     setMatchState("playing");
-  }, [mode, resetPositions]);
+  }, [mode, requestGameFullscreen, resetPositions, showTouchControls]);
 
   const saveScore = useCallback(async () => {
     if (mode !== "ai") {
@@ -1115,6 +1230,23 @@ export function ArcadeSoccerGame() {
     const id = window.setTimeout(() => void fetchLeaderboard(), 0);
     return () => window.clearTimeout(id);
   }, [fetchLeaderboard]);
+
+  useEffect(() => {
+    const coarse = window.matchMedia("(pointer: coarse)");
+    const compact = window.matchMedia("(max-width: 1180px)");
+    const forcedTouch = new URLSearchParams(window.location.search).has("touch");
+    const update = () => setShowTouchControls(forcedTouch || coarse.matches || compact.matches);
+    update();
+    coarse.addEventListener("change", update);
+    compact.addEventListener("change", update);
+    const onFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => {
+      coarse.removeEventListener("change", update);
+      compact.removeEventListener("change", update);
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+    };
+  }, []);
 
   useEffect(() => {
     const supabase = getSupabaseClient();
@@ -1276,7 +1408,7 @@ export function ArcadeSoccerGame() {
 
       if (active.state === "playing") {
         active.cooldown = Math.max(0, active.cooldown - dt);
-        updateMatch(active, keysRef.current, dt, firstPersonRef.current, firstPersonYawRef);
+        updateMatch(active, keysRef.current, dt, firstPersonRef.current, firstPersonYawRef, virtualControlsRef.current);
         animateCrowd(active, dt);
         setScore({ ...active.score });
         setGameClock(active.gameClock);
@@ -1371,13 +1503,7 @@ export function ArcadeSoccerGame() {
               className={`pointer-events-auto rounded-md border px-3 py-2 text-xs font-bold shadow-2xl backdrop-blur transition ${
                 firstPerson ? "border-cyan-200 bg-cyan-300/20 text-cyan-50" : "border-white/10 bg-black/40 text-white hover:bg-white/10"
               }`}
-              onClick={() => {
-                firstPersonRef.current = !firstPersonRef.current;
-                const active = sceneRef.current;
-                const controlled = active?.players.find((player) => player.controlledBy === "p1");
-                if (firstPersonRef.current && controlled) firstPersonYawRef.current = controlled.heading;
-                setFirstPerson(firstPersonRef.current);
-              }}
+              onClick={toggleFirstPerson}
             >
               {firstPerson ? "First-person" : "Broadcast"}
             </button>
@@ -1411,7 +1537,7 @@ export function ArcadeSoccerGame() {
           </div>
         )}
       </section>
-      {matchState === "playing" && (
+      {matchState === "playing" && !showTouchControls && (
         <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-between px-4 sm:px-6">
           <button
             aria-label="Player one tackle"
@@ -1429,6 +1555,83 @@ export function ArcadeSoccerGame() {
               P2 Tackle
             </button>
           )}
+        </div>
+      )}
+      {matchState === "playing" && showTouchControls && (
+        <div
+          className="pointer-events-none fixed inset-0 z-30 select-none touch-none"
+          style={{
+            paddingLeft: "env(safe-area-inset-left)",
+            paddingRight: "env(safe-area-inset-right)",
+            paddingBottom: "env(safe-area-inset-bottom)",
+          }}
+        >
+          <div
+            className="pointer-events-auto absolute h-32 w-32 rounded-full border border-cyan-100/25 bg-black/30 shadow-2xl backdrop-blur-md sm:h-40 sm:w-40"
+            style={{ left: "calc(env(safe-area-inset-left) + 1rem)", bottom: "calc(env(safe-area-inset-bottom) + 1.25rem)" }}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              joystickPointerRef.current = event.pointerId;
+              event.currentTarget.setPointerCapture(event.pointerId);
+              updateJoystickFromPointer(event);
+              if (showTouchControls && !document.fullscreenElement) void requestGameFullscreen();
+            }}
+            onPointerMove={(event) => {
+              if (joystickPointerRef.current !== event.pointerId) return;
+              event.preventDefault();
+              event.stopPropagation();
+              updateJoystickFromPointer(event);
+            }}
+            onPointerUp={(event) => {
+              if (joystickPointerRef.current !== event.pointerId) return;
+              event.preventDefault();
+              event.stopPropagation();
+              releaseJoystick();
+            }}
+            onPointerCancel={(event) => {
+              if (joystickPointerRef.current !== event.pointerId) return;
+              releaseJoystick();
+            }}
+          >
+            <div className="absolute inset-4 rounded-full border border-white/10 bg-cyan-200/5" />
+            <div
+              className="absolute left-1/2 top-1/2 h-14 w-14 -translate-x-1/2 -translate-y-1/2 rounded-full border border-cyan-100/45 bg-cyan-200/35 shadow-[0_0_24px_rgba(103,232,249,0.25)] sm:h-16 sm:w-16"
+              style={{ transform: `translate(calc(-50% + ${joystickKnob.x}px), calc(-50% + ${joystickKnob.y}px))` }}
+            />
+          </div>
+
+          <div
+            className="pointer-events-auto absolute grid grid-cols-3 gap-2 max-[560px]:grid-cols-2 sm:gap-3"
+            style={{ right: "calc(env(safe-area-inset-right) + 4.25rem)", bottom: "calc(env(safe-area-inset-bottom) + 1.25rem)" }}
+          >
+            <TouchButton label="Pass" onPress={() => performMobileAction("pass")} />
+            <TouchButton label="Shoot" strong onPress={() => performMobileAction("shoot")} />
+            <TouchButton
+              label="Sprint"
+              onDown={() => {
+                virtualControlsRef.current.sprint = true;
+              }}
+              onUp={() => {
+                virtualControlsRef.current.sprint = false;
+              }}
+            />
+            <TouchButton label="Switch" onPress={() => performMobileAction("switch")} />
+            <TouchButton label={firstPerson ? "View" : "FPV"} active={firstPerson} onPress={() => performMobileAction("first-person")} />
+            <TouchButton label="Tackle" onPress={() => performMobileAction("tackle")} />
+          </div>
+
+          <button
+            className="pointer-events-auto absolute rounded-full border border-white/15 bg-black/35 px-4 py-2 text-xs font-black text-white shadow-2xl backdrop-blur-md active:bg-white/15"
+            style={{ right: "calc(env(safe-area-inset-right) + 1rem)", top: "calc(env(safe-area-inset-top) + 5.6rem)" }}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              performMobileAction("fullscreen");
+            }}
+          >
+            {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+          </button>
         </div>
       )}
       {matchState === "playing" && eventText !== "PLAY" && (
@@ -1527,7 +1730,14 @@ export function ArcadeSoccerGame() {
   );
 }
 
-function updateMatch(active: MatchRuntime, keys: Set<string>, dt: number, firstPersonMode = false, firstPersonYaw?: MutableRefObject<number>) {
+function updateMatch(
+  active: MatchRuntime,
+  keys: Set<string>,
+  dt: number,
+  firstPersonMode = false,
+  firstPersonYaw?: MutableRefObject<number>,
+  virtualControls?: VirtualControls,
+) {
   const ball = active.ballPos;
   const ballVel = active.ballVel;
   const p1 = active.players.find((player) => player.controlledBy === "p1");
@@ -1576,9 +1786,9 @@ function updateMatch(active: MatchRuntime, keys: Set<string>, dt: number, firstP
       player.mesh.position.copy(player.pos);
       return;
     }
-    const input = active.phase === "open"
+    const input: PlayerInputState = active.phase === "open"
       ? player.controlledBy === "p1"
-        ? playerInput(keys, "p1", firstPersonMode, firstPersonYaw?.current ?? player.heading)
+        ? playerInput(keys, "p1", firstPersonMode, firstPersonYaw?.current ?? player.heading, virtualControls)
         : player.controlledBy === "p2"
           ? playerInput(keys, "p2")
           : aiInput(player, active)
@@ -1588,6 +1798,7 @@ function updateMatch(active: MatchRuntime, keys: Set<string>, dt: number, firstP
       if (supportDir.lengthSq() > 1) input.dir.lerp(supportDir.normalize(), 0.82).normalize();
     }
     const sprint = (input.sprint || player.supportRunTimer > 0) && player.stamina > 0.12;
+    const speedScale = clamp(input.speedScale ?? 1, 0.35, 1);
     const maxSpeed = (player.role === "keeper" ? 5.6 : 12.1) * (sprint ? 1.25 : 1);
     player.stamina = clamp(player.stamina + (sprint ? -0.42 : 0.24) * dt, 0, 1);
     player.kickTimer = Math.max(0, player.kickTimer - dt);
@@ -1603,7 +1814,7 @@ function updateMatch(active: MatchRuntime, keys: Set<string>, dt: number, firstP
     player.carryTimer = active.ballOwnerId === player.id ? player.carryTimer + dt : 0;
     player.supportRunTimer = Math.max(0, player.supportRunTimer - dt);
     const recoveryScale = player.recoveryTimer > 0 ? 0.48 : 1;
-    movePlayer(player, input.dir, maxSpeed * recoveryScale, dt, active);
+    movePlayer(player, input.dir, maxSpeed * recoveryScale * speedScale, dt, active);
     clampPlayer(player);
     player.mesh.position.copy(player.pos);
     animatePlayer(player, dt);
@@ -2501,26 +2712,39 @@ function playGoalSound(active: MatchRuntime) {
   window.setTimeout(() => playTone(active, 523, 0.22, 0.022, "sine"), 90);
 }
 
-function playerInput(keys: Set<string>, player: "p1" | "p2", firstPersonMode = false, firstPersonYaw = 0) {
+function playerInput(keys: Set<string>, player: "p1" | "p2", firstPersonMode = false, firstPersonYaw = 0, virtualControls?: VirtualControls): PlayerInputState {
   const dir = new THREE.Vector3();
   if (player === "p1") {
+    if (virtualControls && virtualControls.strength > 0.04) {
+      const virtualDir = virtualControls.dir.clone();
+      if (firstPersonMode) {
+        const forward = forwardFromHeading(firstPersonYaw);
+        const right = new THREE.Vector3(forward.z, 0, -forward.x);
+        virtualDir.copy(right.multiplyScalar(virtualControls.dir.x).add(forward.multiplyScalar(-virtualControls.dir.z)));
+      }
+      return {
+        dir: virtualDir.lengthSq() > 0 ? virtualDir.normalize() : virtualDir,
+        sprint: virtualControls.sprint || keys.has("ShiftLeft"),
+        speedScale: clamp(0.42 + virtualControls.strength * 0.58, 0.35, 1),
+      };
+    }
     if (firstPersonMode) {
       const forward = forwardFromHeading(firstPersonYaw);
       if (keys.has("ArrowUp")) dir.add(forward);
       if (keys.has("ArrowDown")) dir.sub(forward);
-      return { dir: dir.lengthSq() > 0 ? dir.normalize() : dir, sprint: keys.has("ShiftLeft") };
+      return { dir: dir.lengthSq() > 0 ? dir.normalize() : dir, sprint: keys.has("ShiftLeft"), speedScale: 1 };
     }
     if (keys.has("ArrowUp")) dir.z -= 1;
     if (keys.has("ArrowDown")) dir.z += 1;
     if (keys.has("ArrowLeft")) dir.x -= 1;
     if (keys.has("ArrowRight")) dir.x += 1;
-    return { dir: dir.lengthSq() > 0 ? dir.normalize() : dir, sprint: keys.has("ShiftLeft") };
+    return { dir: dir.lengthSq() > 0 ? dir.normalize() : dir, sprint: keys.has("ShiftLeft"), speedScale: 1 };
   }
   if (keys.has("KeyI")) dir.z += 1;
   if (keys.has("KeyK")) dir.z -= 1;
   if (keys.has("KeyJ")) dir.x -= 1;
   if (keys.has("KeyL")) dir.x += 1;
-  return { dir: dir.lengthSq() > 0 ? dir.normalize() : dir, sprint: keys.has("Slash") || keys.has("ControlRight") };
+  return { dir: dir.lengthSq() > 0 ? dir.normalize() : dir, sprint: keys.has("Slash") || keys.has("ControlRight"), speedScale: 1 };
 }
 
 function aiInput(player: PlayerBody, active: MatchRuntime) {
@@ -3178,6 +3402,52 @@ function Metric({ label, value, color = "text-white" }: { label: string; value: 
       <div className="text-[10px] uppercase text-emerald-100/60">{label}</div>
       <div className={`font-mono text-lg font-black ${color}`}>{value}</div>
     </div>
+  );
+}
+
+function TouchButton({
+  label,
+  active = false,
+  strong = false,
+  onPress,
+  onDown,
+  onUp,
+}: {
+  label: string;
+  active?: boolean;
+  strong?: boolean;
+  onPress?: () => void;
+  onDown?: () => void;
+  onUp?: () => void;
+}) {
+  return (
+    <button
+      className={`grid h-14 w-14 place-items-center rounded-full border text-[10px] font-black uppercase tracking-normal shadow-2xl backdrop-blur-md active:scale-95 sm:h-16 sm:w-16 sm:text-[11px] ${
+        active
+          ? "border-cyan-100 bg-cyan-300/35 text-cyan-50"
+          : strong
+            ? "border-rose-100/35 bg-rose-300/25 text-rose-50"
+            : "border-white/15 bg-black/35 text-white"
+      }`}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        onDown?.();
+      }}
+      onPointerUp={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onUp?.();
+        onPress?.();
+      }}
+      onPointerCancel={() => {
+        onUp?.();
+      }}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      {label}
+    </button>
   );
 }
 
