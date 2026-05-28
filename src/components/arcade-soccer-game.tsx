@@ -225,6 +225,11 @@ function attackingGoalZ(team: TeamId, half: 1 | 2) {
   return -teamGoalZ(team, half);
 }
 
+function upfieldKickDirection(team: TeamId, half: 1 | 2) {
+  const z = Math.sign(attackingGoalZ(team, half)) || 1;
+  return new THREE.Vector3(0, 0, z);
+}
+
 function teamSide(team: TeamId, half: 1 | 2) {
   return teamGoalZ(team, half) > 0 ? 1 : -1;
 }
@@ -335,6 +340,8 @@ function makeHumanFigure({
   const shortsMaterial = new THREE.MeshStandardMaterial({ color: shorts, roughness: 0.56 });
   const skinMaterial = new THREE.MeshStandardMaterial({ color: skin, roughness: 0.56 });
   const bootMaterial = new THREE.MeshStandardMaterial({ color: "#07101d", roughness: 0.48 });
+  const bootAccentMaterial = new THREE.MeshStandardMaterial({ color: accent ?? trim, roughness: 0.46 });
+  const clothLightMaterial = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.62 });
   const hip = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.22, 0.4), shortsMaterial);
   hip.position.y = 1.02;
   hip.castShadow = true;
@@ -355,6 +362,14 @@ function makeHumanFigure({
   const chest = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.54, 0.44), shirtMaterial);
   chest.position.y = 1.94;
   chest.castShadow = true;
+  const chestPanel = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.5, 0.035), shirtMaterial);
+  chestPanel.position.set(0, 1.94, 0.245);
+  const frontTrim = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.045, 0.04), trimMaterial);
+  frontTrim.position.set(0, 2.12, 0.27);
+  const collar = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 6, 18), trimMaterial);
+  collar.position.y = 2.28;
+  collar.scale.set(1.15, 0.72, 0.9);
+  collar.rotation.x = Math.PI / 2;
 
   const shortsMesh = new THREE.Mesh(
     new THREE.BoxGeometry(0.76, 0.36, 0.4),
@@ -393,6 +408,8 @@ function makeHumanFigure({
     shoulder.rotation.z = side * 0.16;
     const upperArm = new THREE.Mesh(new THREE.CapsuleGeometry(0.082, 0.52, 5, 8), shirtMaterial);
     upperArm.position.y = -0.29;
+    const sleeve = new THREE.Mesh(new THREE.CapsuleGeometry(0.094, 0.18, 4, 8), trimMaterial);
+    sleeve.position.y = -0.1;
     const elbow = new THREE.Group();
     elbow.name = side < 0 ? "left-elbow" : "right-elbow";
     elbow.position.y = -0.56;
@@ -402,14 +419,15 @@ function makeHumanFigure({
     hand.name = side < 0 ? "left-hand" : "right-hand";
     hand.position.y = -0.54;
     upperArm.castShadow = true;
+    sleeve.castShadow = true;
     forearm.castShadow = true;
     hand.castShadow = true;
     elbow.add(forearm, hand);
-    shoulder.add(upperArm, elbow);
+    shoulder.add(upperArm, sleeve, elbow);
     bodyRoot.add(shoulder);
   });
 
-  const sockMaterial = new THREE.MeshStandardMaterial({ color: "#f8fafc", roughness: 0.58 });
+  const sockMaterial = clothLightMaterial;
   [-1, 1].forEach((side) => {
     const pivot = new THREE.Group();
     pivot.name = side < 0 ? "left-leg" : "right-leg";
@@ -423,15 +441,22 @@ function makeHumanFigure({
     const calf = new THREE.Mesh(new THREE.CapsuleGeometry(0.098, 0.68, 5, 8), sockMaterial);
     calf.position.y = -0.38;
     calf.castShadow = true;
+    const sockBand = new THREE.Mesh(new THREE.CapsuleGeometry(0.105, 0.08, 4, 8), trimMaterial);
+    sockBand.position.y = -0.08;
+    const ankleBand = new THREE.Mesh(new THREE.CapsuleGeometry(0.102, 0.06, 4, 8), trimMaterial);
+    ankleBand.position.y = -0.62;
     const boot = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.12, 0.58), bootMaterial);
     boot.position.set(0, -0.82, 0.22);
     boot.castShadow = true;
-    knee.add(calf, boot);
+    const bootToe = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.055, 0.24), bootAccentMaterial);
+    bootToe.position.set(0, -0.75, 0.52);
+    bootToe.castShadow = true;
+    knee.add(calf, sockBand, ankleBand, boot, bootToe);
     pivot.add(thigh, knee);
     bodyRoot.add(pivot);
   });
 
-  bodyRoot.add(hip, torso, chest, shoulderBand, shortsMesh, neck, head, hairCap);
+  bodyRoot.add(hip, torso, chest, chestPanel, frontTrim, collar, shoulderBand, shortsMesh, neck, head, hairCap);
   const face = new THREE.Mesh(
     new THREE.SphereGeometry(0.24, 10, 8),
     skinMaterial,
@@ -439,6 +464,16 @@ function makeHumanFigure({
   face.scale.set(0.82, 1.0, 0.2);
   face.position.set(0, 2.62, 0.21);
   face.castShadow = true;
+  const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.12, 0.1), skinMaterial);
+  jaw.position.set(0, 2.5, 0.24);
+  jaw.castShadow = true;
+  const hairSide = new THREE.Mesh(
+    new THREE.BoxGeometry(0.34, 0.08, 0.22),
+    new THREE.MeshStandardMaterial({ color: hair, roughness: 0.72 }),
+  );
+  hairSide.position.set(-0.035, 2.82, 0.09);
+  hairSide.rotation.z = -0.16;
+  hairSide.castShadow = true;
   const featureMaterial = new THREE.MeshBasicMaterial({ color: "#1b120d" });
   [-1, 1].forEach((side) => {
     const eye = new THREE.Mesh(new THREE.SphereGeometry(0.032, 6, 6), featureMaterial);
@@ -450,7 +485,7 @@ function makeHumanFigure({
   nose.rotation.x = Math.PI / 2;
   const mouth = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.018, 0.012), featureMaterial);
   mouth.position.set(0, 2.54, 0.415);
-  bodyRoot.add(face, nose, mouth);
+  bodyRoot.add(face, jaw, hairSide, nose, mouth);
   if (numberPanel) bodyRoot.add(numberPanel);
   group.add(bodyRoot);
   if (accent) {
@@ -2058,9 +2093,15 @@ function updateMatch(
   const dribbler = ballOwner(active);
   if (active.phase === "open" && dribbler) {
     const dribblePoint = dribbler.role === "keeper" && dribbler.catchTimer > 0 ? keeperHandPoint(dribbler) : controlledBallPoint(dribbler);
-    ball.lerp(dribblePoint, 1 - Math.pow(0.0000008, dt));
+    const attachSnapDistance = dribbler.controlledBy ? 0.95 : 1.35;
+    const attachRate = dribbler.controlledBy ? 1 - Math.pow(0.00000000004, dt) : 1 - Math.pow(0.0000008, dt);
+    if (ball.distanceTo(dribblePoint) > attachSnapDistance) {
+      ball.copy(dribblePoint);
+    } else {
+      ball.lerp(dribblePoint, attachRate);
+    }
     if (dribbler.role !== "keeper" || dribbler.catchTimer <= 0) ball.y = BALL_RADIUS;
-    ballVel.copy(dribbler.vel).multiplyScalar(0.82);
+    ballVel.copy(dribbler.vel).multiplyScalar(dribbler.controlledBy ? 0.96 : 0.82);
   }
 
   active.players.forEach((player) => {
@@ -2270,13 +2311,13 @@ function celebrateGoal(active: MatchRuntime, concedingTeam: TeamId, scoredBy: Te
 
 function stopForRestart(active: MatchRuntime, phase: PlayPhase, team: TeamId, spot: THREE.Vector3, label: string) {
   active.phase = phase;
-  active.phaseTimer = phase === "kickoff" ? 1.8 : phase === "goal-kick" ? 0.38 : 1.15;
+  active.phaseTimer = phase === "kickoff" ? 1.8 : phase === "goal-kick" ? 0.16 : 1.15;
   active.restartTeam = team;
   active.restartSpot.copy(spot);
   if (phase === "kickoff") {
     resetKickoffShape(active);
     active.restartActorId = kickoffTaker(active.players, team, spot)?.id ?? null;
-    active.restartDirection.set(0, 0, Math.sign(attackingGoalZ(team, active.half)));
+    active.restartDirection.copy(upfieldKickDirection(team, active.half));
     stageKickoffShape(active);
   } else if (phase === "throw-in") {
     active.restartDirection.set(spot.x > 0 ? -1 : 1, 0, Math.sign(attackingGoalZ(team, active.half)) * 0.35).normalize();
@@ -2284,7 +2325,7 @@ function stopForRestart(active: MatchRuntime, phase: PlayPhase, team: TeamId, sp
       ?? nearestTeamPlayer(active.players, team, spot)?.id
       ?? null;
   } else {
-    active.restartDirection.set(0, 0, Math.sign(attackingGoalZ(team, active.half)));
+    active.restartDirection.copy(upfieldKickDirection(team, active.half));
     active.restartActorId = phase === "goal-kick"
       ? active.players.find((player) => player.team === team && player.role === "keeper")?.id ?? null
       : phase === "corner"
@@ -2310,11 +2351,13 @@ function arrangeSetPieceShape(active: MatchRuntime, phase: PlayPhase, team: Team
     if (player.id === active.restartActorId) {
       if (phase === "goal-kick") {
         const goalZ = teamGoalZ(team, active.half);
-        player.pos.set(
-          clamp(spot.x - Math.sign(player.home.x || 1) * 1.6, -GOAL_W / 2 + 1, GOAL_W / 2 - 1),
-          0,
-          goalZ - Math.sign(goalZ) * 3.6,
-        );
+        player.pos.set(0, 0, goalZ - Math.sign(goalZ) * 5.2);
+        player.heading = headingFromDirection(upfieldKickDirection(team, active.half));
+        player.mesh.rotation.y = player.heading;
+        player.diveTimer = 0;
+        player.diveSide = 0;
+        player.tackleTimer = 0;
+        player.catchTimer = 0;
       } else {
         player.pos.copy(spot).setY(0);
         if (phase === "throw-in") player.pos.x = Math.sign(spot.x || 1) * (FIELD_W / 2 - 2.1);
@@ -2362,8 +2405,10 @@ function resumeRestart(active: MatchRuntime) {
   }
   const restartingPhase = active.phase;
   const showSecondHalfBanner = active.eventText === "SECOND HALF";
+  let goalKickDirection: THREE.Vector3 | null = null;
   if (restartingPhase === "goal-kick") {
-    active.restartDirection.set(0, 0, Math.sign(attackingGoalZ(active.restartTeam, active.half))).normalize();
+    goalKickDirection = upfieldKickDirection(active.restartTeam, active.half);
+    active.restartDirection.copy(goalKickDirection);
   }
   const kickoffActor = restartingPhase === "kickoff" ? kickoffTaker(active.players, active.restartTeam, active.restartSpot) : null;
   const actor = active.restartActorId ? active.players.find((player) => player.id === active.restartActorId) : kickoffActor;
@@ -2372,35 +2417,46 @@ function resumeRestart(active: MatchRuntime) {
     if (receiver) active.restartDirection.copy(receiver.pos.clone().sub(actor.pos).setY(0).normalize());
   }
   if (restartingPhase === "goal-kick" && actor) {
-    actor.heading = headingFromDirection(active.restartDirection);
+    const kickDirection = goalKickDirection ?? upfieldKickDirection(active.restartTeam, active.half);
+    actor.heading = headingFromDirection(kickDirection);
     actor.mesh.rotation.y = actor.heading;
-    const keeperSpot = active.restartSpot.clone().sub(active.restartDirection.clone().multiplyScalar(3.0)).setY(0);
-    actor.pos.copy(keeperSpot);
+    const keeperGoalZ = teamGoalZ(active.restartTeam, active.half);
+    actor.pos.set(0, 0, keeperGoalZ - Math.sign(keeperGoalZ) * 5.2);
     actor.vel.set(0, 0, 0);
+    actor.diveTimer = 0;
+    actor.diveSide = 0;
+    actor.tackleTimer = 0;
+    actor.catchTimer = 0;
+    actor.recoveryTimer = 0;
     actor.mesh.position.copy(actor.pos);
-    active.ballPos.copy(actor.pos).add(active.restartDirection.clone().multiplyScalar(3.45)).setY(BALL_RADIUS);
+    active.ballPos.copy(actor.pos).add(kickDirection.clone().multiplyScalar(4.35)).setY(BALL_RADIUS);
   }
   const power = restartingPhase === "corner" ? 12 : restartingPhase === "goal-kick" ? 48 : restartingPhase === "throw-in" ? 16.5 : 4.2;
-      const releasePoint = active.phase === "throw-in" && actor
+  const releasePoint = active.phase === "throw-in" && actor
     ? throwInHandPoint(actor, active.restartDirection).add(active.restartDirection.clone().multiplyScalar(0.58))
     : restartingPhase === "goal-kick"
       ? (actor
-        ? actor.pos.clone().add(active.restartDirection.clone().multiplyScalar(3.6)).setY(BALL_RADIUS)
-        : active.restartSpot.clone().add(active.restartDirection.clone().multiplyScalar(4.0)).setY(BALL_RADIUS))
+        ? actor.pos.clone().add((goalKickDirection ?? active.restartDirection).clone().multiplyScalar(4.35)).setY(BALL_RADIUS)
+        : active.restartSpot.clone().add((goalKickDirection ?? active.restartDirection).clone().multiplyScalar(4.35)).setY(BALL_RADIUS))
       : active.restartSpot;
   active.ballPos.copy(releasePoint);
-  active.ballVel.copy(active.restartDirection).multiplyScalar(power);
-  active.ballVel.y = restartingPhase === "goal-kick" ? 15.5 : restartingPhase === "corner" ? 6.5 : restartingPhase === "throw-in" ? 8.4 : 0;
+  if (restartingPhase === "goal-kick") {
+    const kickDirection = goalKickDirection ?? upfieldKickDirection(active.restartTeam, active.half);
+    active.ballVel.set(0, 16.8, kickDirection.z * 54);
+  } else {
+    active.ballVel.copy(active.restartDirection).multiplyScalar(power);
+    active.ballVel.y = restartingPhase === "corner" ? 6.5 : restartingPhase === "throw-in" ? 8.4 : 0;
+  }
   active.lastTouchTeam = active.restartTeam;
   active.lastTouchPlayerId = active.restartActorId;
   active.restartActorId = null;
   active.ballState = "kicked";
   active.ballOwnerId = null;
   active.ballIgnorePlayerId = actor?.id ?? null;
-  active.ballIgnoreTimer = restartingPhase === "goal-kick" ? 3.4 : restartingPhase === "throw-in" ? 0.82 : 0.34;
+  active.ballIgnoreTimer = restartingPhase === "goal-kick" ? 3.8 : restartingPhase === "throw-in" ? 0.82 : 0.34;
   if (restartingPhase === "goal-kick") {
     active.restartProtectionTeam = active.restartTeam;
-    active.restartProtectionTimer = 3.0;
+    active.restartProtectionTimer = 3.4;
   }
   active.phase = "open";
   active.phaseTimer = 0;
@@ -2416,8 +2472,11 @@ function resumeRestart(active: MatchRuntime) {
     if (restartingPhase === "goal-kick") {
       actor.catchTimer = 0;
       actor.actionCooldown = 0.9;
-      actor.recoveryTimer = 0.18;
-      actor.heading = headingFromDirection(active.restartDirection);
+      actor.recoveryTimer = 0;
+      actor.diveTimer = 0;
+      actor.diveSide = 0;
+      actor.tackleTimer = 0;
+      actor.heading = headingFromDirection(goalKickDirection ?? upfieldKickDirection(active.restartTeam, active.half));
       actor.mesh.rotation.y = actor.heading;
     }
   }
@@ -3332,8 +3391,14 @@ function facingDirection(player: PlayerBody) {
   return new THREE.Vector3(Math.sin(player.mesh.rotation.y), 0, Math.cos(player.mesh.rotation.y)).normalize();
 }
 
+function dribbleDirection(player: PlayerBody) {
+  const movement = player.vel.clone().setY(0);
+  if (movement.lengthSq() > 0.18) return movement.normalize();
+  return facingDirection(player);
+}
+
 function controlledBallPoint(player: PlayerBody) {
-  const forward = facingDirection(player);
+  const forward = dribbleDirection(player);
   if (forward.lengthSq() < 0.1) forward.set(0, 0, Math.sign(player.team === "home" ? -1 : 1));
   return player.pos.clone()
     .add(forward.multiplyScalar(DRIBBLE_DISTANCE))
