@@ -100,7 +100,40 @@ type OnlineMatchRow = {
   home_user: string;
   away_user: string;
   status: string;
+  state?: Record<string, unknown> | null;
   created_at: string;
+};
+
+type FictionalTeamKey = "city" | "united" | "humble" | "blue" | "spurs" | "scouse";
+type SetupTab = "team" | "squad" | "formation" | "match" | "online";
+
+type TeamOption = {
+  key: FictionalTeamKey;
+  name: string;
+  primary: string;
+  secondary: string;
+  accent: string;
+  shorts: string;
+  socks: string;
+  keeper: string;
+};
+
+type SquadPlayer = {
+  player_key: string;
+  name: string;
+  jersey_number: number;
+  position: string;
+};
+
+type FormationKey = "4-2-3-1" | "4-3-3" | "4-4-2" | "3-5-2";
+
+type FormationSlot = {
+  slot: string;
+  label: string;
+  line: PlayerLine;
+  x: number;
+  z: number;
+  defaultNumber: number;
 };
 
 type MatchRuntime = {
@@ -189,14 +222,122 @@ const GOAL_SCORE_Z = GOAL_FRONT_Z + BALL_RADIUS * 0.7;
 const GOAL_BACK_Z = GOAL_FRONT_Z + GOAL_DEPTH;
 const GOAL_SIDE_POST_INSET = 0.26;
 
-const HOME_COLOR = "#f8fafc";
 const AWAY_COLOR = "#dc2626";
 const HOME_TRIM = "#2563eb";
 const AWAY_TRIM = "#f8fafc";
-const HOME_SHORTS = "#1d4ed8";
 const AWAY_SHORTS = "#f8fafc";
-const HOME_KEEPER_COLOR = "#facc15";
 const AWAY_KEEPER_COLOR = "#16a34a";
+
+const TEAM_OPTIONS: TeamOption[] = [
+  { key: "city", name: "City FC", primary: "#38bdf8", secondary: "#eff6ff", accent: "#0f172a", shorts: "#f8fafc", socks: "#e0f2fe", keeper: "#facc15" },
+  { key: "united", name: "United FC", primary: "#dc2626", secondary: "#f8fafc", accent: "#111827", shorts: "#111827", socks: "#f8fafc", keeper: "#22c55e" },
+  { key: "humble", name: "Humble FC", primary: "#facc15", secondary: "#14532d", accent: "#166534", shorts: "#14532d", socks: "#fef9c3", keeper: "#0ea5e9" },
+  { key: "blue", name: "Blue FC", primary: "#2563eb", secondary: "#eff6ff", accent: "#93c5fd", shorts: "#1e3a8a", socks: "#dbeafe", keeper: "#fb923c" },
+  { key: "spurs", name: "Spurs FC", primary: "#f8fafc", secondary: "#1d4ed8", accent: "#2563eb", shorts: "#1d4ed8", socks: "#f8fafc", keeper: "#bef264" },
+  { key: "scouse", name: "Scouse FC", primary: "#b91c1c", secondary: "#fef2f2", accent: "#fbbf24", shorts: "#b91c1c", socks: "#fef2f2", keeper: "#14b8a6" },
+];
+
+const DEFAULT_TEAM_KEY: FictionalTeamKey = "city";
+
+function selectedTeamOption(key: FictionalTeamKey) {
+  return TEAM_OPTIONS.find((team) => team.key === key) ?? TEAM_OPTIONS[0];
+}
+
+function defaultSquadPlayers(): SquadPlayer[] {
+  return [
+    { player_key: "p-gk", name: "Noah Park", jersey_number: 1, position: "GK" },
+    { player_key: "p-lb", name: "Leo Kim", jersey_number: 3, position: "LB" },
+    { player_key: "p-cb1", name: "Mason Han", jersey_number: 4, position: "CB" },
+    { player_key: "p-cb2", name: "Jun Seo", jersey_number: 5, position: "CB" },
+    { player_key: "p-rb", name: "Eden Lee", jersey_number: 2, position: "RB" },
+    { player_key: "p-cm1", name: "Rio Choi", jersey_number: 6, position: "CM" },
+    { player_key: "p-cm2", name: "Kai Moon", jersey_number: 8, position: "CM" },
+    { player_key: "p-cam", name: "Milo Shin", jersey_number: 10, position: "CAM" },
+    { player_key: "p-lw", name: "Jay Lim", jersey_number: 7, position: "LW" },
+    { player_key: "p-st", name: "Ace Kang", jersey_number: 9, position: "ST" },
+    { player_key: "p-rw", name: "Tae Yun", jersey_number: 11, position: "RW" },
+    { player_key: "p-sub1", name: "Ben Jang", jersey_number: 12, position: "CM" },
+    { player_key: "p-sub2", name: "Ian Baek", jersey_number: 14, position: "CB" },
+    { player_key: "p-sub3", name: "Sean Oh", jersey_number: 17, position: "FW" },
+  ];
+}
+
+const FORMATION_OPTIONS: Record<FormationKey, FormationSlot[]> = {
+  "4-3-3": [
+    { slot: "GK", label: "GK", line: "keeper", x: 0, z: 44, defaultNumber: 1 },
+    { slot: "LB", label: "LB", line: "defender", x: -22, z: 34, defaultNumber: 3 },
+    { slot: "LCB", label: "LCB", line: "defender", x: -8, z: 34, defaultNumber: 4 },
+    { slot: "RCB", label: "RCB", line: "defender", x: 8, z: 34, defaultNumber: 5 },
+    { slot: "RB", label: "RB", line: "defender", x: 22, z: 34, defaultNumber: 2 },
+    { slot: "LCM", label: "LCM", line: "midfielder", x: -15, z: 10, defaultNumber: 6 },
+    { slot: "CM", label: "CM", line: "midfielder", x: 0, z: 10, defaultNumber: 8 },
+    { slot: "RCM", label: "RCM", line: "midfielder", x: 15, z: 10, defaultNumber: 10 },
+    { slot: "LW", label: "LW", line: "forward", x: -17, z: -24, defaultNumber: 7 },
+    { slot: "ST", label: "ST", line: "forward", x: 0, z: -24, defaultNumber: 9 },
+    { slot: "RW", label: "RW", line: "forward", x: 17, z: -24, defaultNumber: 11 },
+  ],
+  "4-2-3-1": [
+    { slot: "GK", label: "GK", line: "keeper", x: 0, z: 44, defaultNumber: 1 },
+    { slot: "LB", label: "LB", line: "defender", x: -22, z: 34, defaultNumber: 3 },
+    { slot: "LCB", label: "LCB", line: "defender", x: -8, z: 34, defaultNumber: 4 },
+    { slot: "RCB", label: "RCB", line: "defender", x: 8, z: 34, defaultNumber: 5 },
+    { slot: "RB", label: "RB", line: "defender", x: 22, z: 34, defaultNumber: 2 },
+    { slot: "LDM", label: "LDM", line: "midfielder", x: -9, z: 15, defaultNumber: 6 },
+    { slot: "RDM", label: "RDM", line: "midfielder", x: 9, z: 15, defaultNumber: 8 },
+    { slot: "LAM", label: "LAM", line: "midfielder", x: -18, z: -6, defaultNumber: 7 },
+    { slot: "CAM", label: "CAM", line: "midfielder", x: 0, z: -8, defaultNumber: 10 },
+    { slot: "RAM", label: "RAM", line: "midfielder", x: 18, z: -6, defaultNumber: 11 },
+    { slot: "ST", label: "ST", line: "forward", x: 0, z: -27, defaultNumber: 9 },
+  ],
+  "4-4-2": [
+    { slot: "GK", label: "GK", line: "keeper", x: 0, z: 44, defaultNumber: 1 },
+    { slot: "LB", label: "LB", line: "defender", x: -22, z: 34, defaultNumber: 3 },
+    { slot: "LCB", label: "LCB", line: "defender", x: -8, z: 34, defaultNumber: 4 },
+    { slot: "RCB", label: "RCB", line: "defender", x: 8, z: 34, defaultNumber: 5 },
+    { slot: "RB", label: "RB", line: "defender", x: 22, z: 34, defaultNumber: 2 },
+    { slot: "LM", label: "LM", line: "midfielder", x: -22, z: 8, defaultNumber: 7 },
+    { slot: "LCM", label: "LCM", line: "midfielder", x: -7, z: 10, defaultNumber: 6 },
+    { slot: "RCM", label: "RCM", line: "midfielder", x: 7, z: 10, defaultNumber: 8 },
+    { slot: "RM", label: "RM", line: "midfielder", x: 22, z: 8, defaultNumber: 11 },
+    { slot: "LST", label: "LST", line: "forward", x: -8, z: -24, defaultNumber: 9 },
+    { slot: "RST", label: "RST", line: "forward", x: 8, z: -24, defaultNumber: 10 },
+  ],
+  "3-5-2": [
+    { slot: "GK", label: "GK", line: "keeper", x: 0, z: 44, defaultNumber: 1 },
+    { slot: "LCB", label: "LCB", line: "defender", x: -14, z: 34, defaultNumber: 4 },
+    { slot: "CB", label: "CB", line: "defender", x: 0, z: 36, defaultNumber: 5 },
+    { slot: "RCB", label: "RCB", line: "defender", x: 14, z: 34, defaultNumber: 2 },
+    { slot: "LWB", label: "LWB", line: "midfielder", x: -25, z: 12, defaultNumber: 3 },
+    { slot: "LCM", label: "LCM", line: "midfielder", x: -10, z: 10, defaultNumber: 6 },
+    { slot: "CM", label: "CM", line: "midfielder", x: 0, z: 5, defaultNumber: 8 },
+    { slot: "RCM", label: "RCM", line: "midfielder", x: 10, z: 10, defaultNumber: 10 },
+    { slot: "RWB", label: "RWB", line: "midfielder", x: 25, z: 12, defaultNumber: 11 },
+    { slot: "LST", label: "LST", line: "forward", x: -8, z: -24, defaultNumber: 7 },
+    { slot: "RST", label: "RST", line: "forward", x: 8, z: -24, defaultNumber: 9 },
+  ],
+};
+
+let activeHomeTeam = selectedTeamOption(DEFAULT_TEAM_KEY);
+let activeHomeFormation: FormationKey = "4-3-3";
+let activeHomeSquad = defaultSquadPlayers();
+let activeHomeAssignments: Record<string, string> = {};
+
+function defaultFormationAssignments(formation: FormationKey, squad = defaultSquadPlayers()) {
+  const assignments: Record<string, string> = {};
+  FORMATION_OPTIONS[formation].forEach((slot, index) => {
+    assignments[slot.slot] = squad[index]?.player_key ?? squad[0]?.player_key ?? "";
+  });
+  return assignments;
+}
+
+activeHomeAssignments = defaultFormationAssignments(activeHomeFormation, activeHomeSquad);
+
+function applyActiveHomeSetup(teamKey: FictionalTeamKey, formation: FormationKey, squad: SquadPlayer[], assignments: Record<string, string>) {
+  activeHomeTeam = selectedTeamOption(teamKey);
+  activeHomeFormation = formation;
+  activeHomeSquad = squad;
+  activeHomeAssignments = assignments;
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -717,10 +858,11 @@ function makeHumanFigure({
 
 function makeKit(team: TeamId, role: PlayerRole, accent: string, number: number) {
   const isKeeper = role === "keeper";
-  const shirt = isKeeper ? (team === "home" ? HOME_KEEPER_COLOR : AWAY_KEEPER_COLOR) : (team === "home" ? HOME_COLOR : AWAY_COLOR);
-  const trim = isKeeper ? "#111827" : team === "home" ? HOME_TRIM : AWAY_TRIM;
-  const shorts = isKeeper ? "#111827" : team === "home" ? HOME_SHORTS : AWAY_SHORTS;
-  const socks = isKeeper ? "#111827" : "#f8fafc";
+  const home = activeHomeTeam;
+  const shirt = isKeeper ? (team === "home" ? home.keeper : AWAY_KEEPER_COLOR) : (team === "home" ? home.primary : AWAY_COLOR);
+  const trim = isKeeper ? "#111827" : team === "home" ? home.secondary : AWAY_TRIM;
+  const shorts = isKeeper ? "#111827" : team === "home" ? home.shorts : AWAY_SHORTS;
+  const socks = isKeeper ? "#111827" : team === "home" ? home.socks : "#f8fafc";
   const boot = team === "home" ? "#d1d5db" : "#111827";
   return makeHumanFigure({
     shirt,
@@ -729,9 +871,9 @@ function makeKit(team: TeamId, role: PlayerRole, accent: string, number: number)
     socks,
     boot,
     hair: number % 3 === 0 ? "#111827" : number % 2 === 0 ? "#6b3f1f" : "#24160f",
-    accent: isKeeper ? "#f8fafc" : team === "home" ? HOME_TRIM : accent,
+    accent: isKeeper ? "#f8fafc" : team === "home" ? home.accent : accent,
     numberPanel: createNumberPanel(number, team),
-    sponsor: team === "home" ? "FO" : "AW",
+    sponsor: team === "home" ? home.name.split(" ")[0].slice(0, 2).toUpperCase() : "AW",
   });
 }
 
@@ -1233,24 +1375,24 @@ function createPlayer(id: string, team: TeamId, role: PlayerRole, line: PlayerLi
 }
 
 function formationPlayers(mode: GameMode, half: 1 | 2) {
-  const rows = [
-    { line: "defender" as const, z: 34, xs: [-22, -8, 8, 22], numbers: [2, 4, 5, 3] },
-    { line: "midfielder" as const, z: 10, xs: [-15, 0, 15], numbers: [6, 8, 10] },
-    { line: "forward" as const, z: -24, xs: [-17, 0, 17], numbers: [7, 9, 11] },
-  ];
   const players: PlayerBody[] = [];
   (["home", "away"] as TeamId[]).forEach((team) => {
     const side = teamSide(team, half);
-    players.push(createPlayer(`${team}-gk`, team, "keeper", "keeper", 0, side * (FIELD_L / 2 - 4), 1));
-    let index = 1;
-    rows.forEach((row) => {
-      row.xs.forEach((x, slot) => {
-        const controlledBy = team === "home" && row.line === "midfielder" && slot === 1
+    const template = team === "home" ? FORMATION_OPTIONS[activeHomeFormation] : FORMATION_OPTIONS["4-3-3"];
+    let fieldIndex = 1;
+    template.forEach((slot) => {
+      const assignedKey = activeHomeAssignments[slot.slot];
+      const squadPlayer = team === "home" ? activeHomeSquad.find((item) => item.player_key === assignedKey) : null;
+      const number = squadPlayer?.jersey_number ?? slot.defaultNumber;
+      if (slot.line === "keeper") {
+        players.push(createPlayer(`${team}-gk`, team, "keeper", "keeper", slot.x, side * (FIELD_L / 2 - 4), number));
+      } else {
+        const controlledBy = team === "home" && slot.line === "midfielder" && !players.some((player) => player.controlledBy === "p1")
           ? "p1"
           : undefined;
-        players.push(createPlayer(`${team}-${index}`, team, "field", row.line, x, side * row.z, row.numbers[slot], controlledBy));
-        index += 1;
-      });
+        players.push(createPlayer(`${team}-${fieldIndex}`, team, "field", slot.line, slot.x, side * slot.z, number, controlledBy));
+        fieldIndex += 1;
+      }
     });
   });
   return players;
@@ -1293,10 +1435,18 @@ export function ArcadeSoccerGame() {
   const [incomingRequests, setIncomingRequests] = useState<MatchRequestRow[]>([]);
   const [outgoingRequests, setOutgoingRequests] = useState<MatchRequestRow[]>([]);
   const [onlineMatch, setOnlineMatch] = useState<OnlineMatchRow | null>(null);
+  const [authChecked, setAuthChecked] = useState(!hasSupabaseConfig);
+  const [setupTab, setSetupTab] = useState<SetupTab>("team");
+  const [selectedTeamKey, setSelectedTeamKey] = useState<FictionalTeamKey>(DEFAULT_TEAM_KEY);
+  const [squadPlayers, setSquadPlayers] = useState<SquadPlayer[]>(() => defaultSquadPlayers());
+  const [formationName, setFormationName] = useState<FormationKey>("4-3-3");
+  const [formationAssignments, setFormationAssignments] = useState<Record<string, string>>(() => defaultFormationAssignments("4-3-3"));
+  const [setupStatus, setSetupStatus] = useState("");
 
-  const playerLabel = user?.user_metadata?.full_name || user?.email || "Guest";
+  const playerLabel = user?.user_metadata?.full_name || user?.email || "Player";
   const matchScore = useMemo(() => scoreMatch(score.home, score.away), [score]);
   const resultText = score.home > score.away ? "Win" : score.home < score.away ? "Lose" : "Draw";
+  const chosenTeam = selectedTeamOption(selectedTeamKey);
 
   const fetchLeaderboard = useCallback(async () => {
     const supabase = getSupabaseClient();
@@ -1308,6 +1458,97 @@ export function ArcadeSoccerGame() {
       .limit(10);
     setLeaderboard((data ?? []) as ScoreRow[]);
   }, []);
+
+  useEffect(() => {
+    applyActiveHomeSetup(selectedTeamKey, formationName, squadPlayers, formationAssignments);
+  }, [formationAssignments, formationName, selectedTeamKey, squadPlayers]);
+
+  const updateSquadPlayer = useCallback((playerKey: string, patch: Partial<SquadPlayer>) => {
+    setSquadPlayers((players) => players.map((player) => (
+      player.player_key === playerKey ? { ...player, ...patch } : player
+    )));
+  }, []);
+
+  const changeFormation = useCallback((nextFormation: FormationKey) => {
+    setFormationName(nextFormation);
+    setFormationAssignments((current) => {
+      const next = defaultFormationAssignments(nextFormation, squadPlayers);
+      FORMATION_OPTIONS[nextFormation].forEach((slot) => {
+        if (current[slot.slot]) next[slot.slot] = current[slot.slot];
+      });
+      return next;
+    });
+  }, [squadPlayers]);
+
+  const loadTeamSetup = useCallback(async (sessionUser = user) => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !sessionUser) return;
+    const [teamResult, squadResult, formationResult] = await Promise.all([
+      supabase.from("teams").select("*").eq("user_id", sessionUser.id).maybeSingle(),
+      supabase.from("squads").select("player_key,name,jersey_number,position").eq("user_id", sessionUser.id).order("jersey_number", { ascending: true }),
+      supabase.from("formations").select("name,slot_assignments").eq("user_id", sessionUser.id).eq("is_active", true).maybeSingle(),
+    ]);
+    if (teamResult.error || squadResult.error || formationResult.error) {
+      setSetupStatus("Team database is not ready yet. Applying the Supabase SQL will enable saving.");
+      return;
+    }
+    const teamKey = teamResult.data?.team_key as FictionalTeamKey | undefined;
+    if (teamKey && TEAM_OPTIONS.some((team) => team.key === teamKey)) setSelectedTeamKey(teamKey);
+    const loadedSquad = (squadResult.data ?? []) as SquadPlayer[];
+    if (loadedSquad.length > 0) setSquadPlayers(loadedSquad);
+    const loadedFormation = formationResult.data?.name as FormationKey | undefined;
+    if (loadedFormation && FORMATION_OPTIONS[loadedFormation]) {
+      setFormationName(loadedFormation);
+      setFormationAssignments((formationResult.data?.slot_assignments as Record<string, string> | null) ?? defaultFormationAssignments(loadedFormation, loadedSquad.length ? loadedSquad : defaultSquadPlayers()));
+    }
+  }, [user]);
+
+  const saveTeamSetup = useCallback(async () => {
+    const supabase = getSupabaseClient();
+    if (!supabase || !user) {
+      setSetupStatus("Sign in with Google before saving team setup.");
+      return;
+    }
+    const team = selectedTeamOption(selectedTeamKey);
+    setSetupStatus("Saving team setup...");
+    const teamPayload = {
+      user_id: user.id,
+      team_key: team.key,
+      team_name: team.name,
+      primary_color: team.primary,
+      secondary_color: team.secondary,
+      accent_color: team.accent,
+    };
+    const teamSave = await supabase.from("teams").upsert(teamPayload, { onConflict: "user_id" });
+    if (teamSave.error) {
+      setSetupStatus(teamSave.error.message);
+      return;
+    }
+    const squadPayload = squadPlayers.map((player) => ({
+      user_id: user.id,
+      player_key: player.player_key,
+      name: player.name.trim() || "Player",
+      jersey_number: clamp(Math.floor(Number(player.jersey_number) || 1), 1, 99),
+      position: player.position.trim().toUpperCase() || "CM",
+    }));
+    const squadSave = await supabase.from("squads").upsert(squadPayload, { onConflict: "user_id,player_key" });
+    if (squadSave.error) {
+      setSetupStatus(squadSave.error.message);
+      return;
+    }
+    await supabase.from("formations").update({ is_active: false }).eq("user_id", user.id);
+    const formationSave = await supabase.from("formations").upsert({
+      user_id: user.id,
+      name: formationName,
+      slot_assignments: formationAssignments,
+      is_active: true,
+    }, { onConflict: "user_id,name" });
+    if (formationSave.error) {
+      setSetupStatus(formationSave.error.message);
+      return;
+    }
+    setSetupStatus("Saved team, squad, and formation.");
+  }, [formationAssignments, formationName, selectedTeamKey, squadPlayers, user]);
 
   const signInWithGoogle = useCallback(async () => {
     const supabase = getSupabaseClient();
@@ -1334,7 +1575,8 @@ export function ArcadeSoccerGame() {
     setIncomingRequests([]);
     setOutgoingRequests([]);
     setOnlineMatch(null);
-    setAuthStatus("Signed out. Playing as Guest.");
+    setMatchState("menu");
+    setAuthStatus("Signed out. Please sign in to play.");
   }, []);
 
   const loadOnlineProfile = useCallback(async (sessionUser = user) => {
@@ -1346,7 +1588,7 @@ export function ArcadeSoccerGame() {
       .eq("id", sessionUser.id)
       .maybeSingle();
     if (error) {
-      setOnlineStatus("Online multiplayer tables are not ready. Run the Supabase SQL in README.");
+      setOnlineStatus("Online multiplayer tables are not ready yet.");
       return;
     }
     if (data) {
@@ -1361,10 +1603,10 @@ export function ArcadeSoccerGame() {
     const [incoming, outgoing, activeMatch] = await Promise.all([
       supabase.from("match_requests").select("*").eq("to_user", sessionUser.id).eq("status", "pending").order("created_at", { ascending: false }).limit(8),
       supabase.from("match_requests").select("*").eq("from_user", sessionUser.id).eq("status", "pending").order("created_at", { ascending: false }).limit(8),
-      supabase.from("matches").select("*").or(`home_user.eq.${sessionUser.id},away_user.eq.${sessionUser.id}`).eq("status", "active").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("online_matches").select("*").or(`home_user.eq.${sessionUser.id},away_user.eq.${sessionUser.id}`).eq("status", "active").order("created_at", { ascending: false }).limit(1).maybeSingle(),
     ]);
     if (incoming.error || outgoing.error) {
-      setOnlineStatus("Online multiplayer tables are not ready. Run the Supabase SQL in README.");
+      setOnlineStatus("Online multiplayer tables are not ready yet.");
       return;
     }
     setIncomingRequests((incoming.data ?? []) as MatchRequestRow[]);
@@ -1566,6 +1808,11 @@ export function ArcadeSoccerGame() {
     if (!active) return;
     if (showTouchControls) void requestGameFullscreen();
     ensureAudio(active);
+    if (!user) {
+      setAuthStatus("Sign in with Google before playing.");
+      return;
+    }
+    applyActiveHomeSetup(selectedTeamKey, formationName, squadPlayers, formationAssignments);
     active.mode = nextMode;
     active.state = "playing";
     active.phase = "kickoff";
@@ -1591,7 +1838,7 @@ export function ArcadeSoccerGame() {
     resetPositions("home");
     beginWalkout(active);
     setMatchState("playing");
-  }, [mode, requestGameFullscreen, resetPositions, showTouchControls]);
+  }, [formationAssignments, formationName, mode, requestGameFullscreen, resetPositions, selectedTeamKey, showTouchControls, squadPlayers, user]);
 
   const skipWalkout = useCallback(() => {
     const active = sceneRef.current;
@@ -1603,19 +1850,27 @@ export function ArcadeSoccerGame() {
   const respondToMatchRequest = useCallback(async (request: MatchRequestRow, status: "accepted" | "declined") => {
     const supabase = getSupabaseClient();
     if (!supabase || !user) return;
-    const { error } = await supabase.from("match_requests").update({ status }).eq("id", request.id).eq("to_user", user.id);
+    const { error } = await supabase.from("match_requests").update({ status, responded_at: new Date().toISOString() }).eq("id", request.id).eq("to_user", user.id);
     if (error) {
       setOnlineStatus(error.message);
       return;
     }
     if (status === "accepted") {
       const { data: match, error: matchError } = await supabase
-        .from("matches")
+        .from("online_matches")
         .insert({ home_user: request.from_user, away_user: user.id, status: "active", state: { kickoff: Date.now() } })
         .select("*")
         .single();
       if (matchError) {
         setOnlineStatus(matchError.message);
+        return;
+      }
+      const playersSave = await supabase.from("match_players").insert([
+        { match_id: (match as OnlineMatchRow).id, user_id: request.from_user, team_side: "home", ready: true },
+        { match_id: (match as OnlineMatchRow).id, user_id: user.id, team_side: "away", ready: true },
+      ]);
+      if (playersSave.error) {
+        setOnlineStatus(playersSave.error.message);
         return;
       }
       setOnlineMatch(match as OnlineMatchRow);
@@ -1633,7 +1888,7 @@ export function ArcadeSoccerGame() {
       return;
     }
     if (!user) {
-      setSaveStatus("Sign in with Google to upload online scores. Guest matches stay local.");
+      setSaveStatus("Sign in with Google before playing or saving scores.");
       return;
     }
     const cleanName = nickname.trim();
@@ -1709,8 +1964,10 @@ export function ArcadeSoccerGame() {
         setNickname((current) => current || String(fallbackName).slice(0, 16));
         setOnlineUsername((current) => current || String(fallbackName).slice(0, 16));
         void loadOnlineProfile(sessionUser);
+        void loadTeamSetup(sessionUser);
         void fetchOnlineRequests(sessionUser);
       }
+      setAuthChecked(true);
     });
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
       const sessionUser = session?.user ?? null;
@@ -1720,12 +1977,16 @@ export function ArcadeSoccerGame() {
         setNickname((current) => current || String(fallbackName).slice(0, 16));
         setOnlineUsername((current) => current || String(fallbackName).slice(0, 16));
         void loadOnlineProfile(sessionUser);
+        void loadTeamSetup(sessionUser);
         void fetchOnlineRequests(sessionUser);
         setAuthStatus("");
+      } else {
+        setMatchState("menu");
       }
+      setAuthChecked(true);
     });
     return () => data.subscription.unsubscribe();
-  }, [fetchOnlineRequests, loadOnlineProfile]);
+  }, [fetchOnlineRequests, loadOnlineProfile, loadTeamSetup]);
 
   useEffect(() => {
     if (!user || !hasSupabaseConfig) return undefined;
@@ -1738,7 +1999,7 @@ export function ArcadeSoccerGame() {
       .channel(`online-lobby-${user.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "match_requests", filter: `to_user=eq.${user.id}` }, () => void fetchOnlineRequests(user))
       .on("postgres_changes", { event: "*", schema: "public", table: "match_requests", filter: `from_user=eq.${user.id}` }, () => void fetchOnlineRequests(user))
-      .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, () => void fetchOnlineRequests(user))
+      .on("postgres_changes", { event: "*", schema: "public", table: "online_matches" }, () => void fetchOnlineRequests(user))
       .subscribe();
     return () => {
       window.clearInterval(timer);
@@ -1755,7 +2016,7 @@ export function ArcadeSoccerGame() {
       if (!active) return;
       const controlled = active.players.find((player) => player.controlledBy === "p1");
       void supabase
-        .from("matches")
+        .from("online_matches")
         .update({
           state: {
             clock: active.gameClock,
@@ -1770,7 +2031,7 @@ export function ArcadeSoccerGame() {
     }, 700);
     const channel = supabase
       .channel(`online-match-${onlineMatch.id}`)
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "matches", filter: `id=eq.${onlineMatch.id}` }, () => {
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "online_matches", filter: `id=eq.${onlineMatch.id}` }, () => {
         setOnlineStatus("Online match state synced.");
       })
       .subscribe();
@@ -1781,6 +2042,7 @@ export function ArcadeSoccerGame() {
   }, [matchState, mode, onlineMatch, user]);
 
   useEffect(() => {
+    if (!user) return;
     const mount = mountRef.current;
     if (!mount) return;
 
@@ -2002,7 +2264,7 @@ export function ArcadeSoccerGame() {
       mount.removeChild(active.renderer.domElement);
       sceneRef.current = null;
     };
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
@@ -2041,6 +2303,71 @@ export function ArcadeSoccerGame() {
     };
   }, []);
 
+  if (!user) {
+    return (
+      <main className="relative min-h-screen overflow-hidden bg-[#7dd3fc] text-white">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.75),transparent_24%),radial-gradient(circle_at_80%_12%,rgba(253,224,71,0.7),transparent_20%),linear-gradient(135deg,#7dd3fc_0%,#a78bfa_48%,#fb7185_100%)]" />
+        <div className="absolute -left-16 top-16 h-48 w-48 rounded-full bg-lime-300/70 blur-sm" />
+        <div className="absolute -right-20 bottom-20 h-56 w-56 rounded-full bg-yellow-300/70 blur-sm" />
+        <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-emerald-500 via-emerald-400 to-transparent" />
+        <div className="absolute bottom-16 left-1/2 h-24 w-[120vw] -translate-x-1/2 rounded-[50%] border-t-[12px] border-white/70" />
+        <div className="absolute left-[13%] top-[24%] h-24 w-20 rotate-[-8deg] rounded-[2rem] bg-cyan-400 shadow-2xl">
+          <div className="absolute -top-9 left-5 h-12 w-12 rounded-full bg-amber-200" />
+          <div className="absolute -top-12 left-6 h-6 w-10 rounded-full bg-slate-800" />
+          <div className="absolute left-3 top-6 h-5 w-14 rounded-full bg-white/80" />
+          <div className="absolute -bottom-9 left-2 h-12 w-5 rounded-full bg-blue-900" />
+          <div className="absolute -bottom-9 right-2 h-12 w-5 rounded-full bg-blue-900" />
+        </div>
+        <div className="absolute right-[15%] top-[30%] h-24 w-20 rotate-[9deg] rounded-[2rem] bg-rose-500 shadow-2xl">
+          <div className="absolute -top-9 left-5 h-12 w-12 rounded-full bg-orange-200" />
+          <div className="absolute -top-12 left-4 h-7 w-12 rounded-full bg-yellow-900" />
+          <div className="absolute left-3 top-6 h-5 w-14 rounded-full bg-white/85" />
+          <div className="absolute -bottom-9 left-2 h-12 w-5 rounded-full bg-white" />
+          <div className="absolute -bottom-9 right-2 h-12 w-5 rounded-full bg-white" />
+        </div>
+        <div className="absolute left-[42%] top-[26%] h-16 w-16 animate-bounce rounded-full border-[8px] border-slate-900 bg-white shadow-2xl">
+          <div className="absolute left-5 top-2 h-5 w-5 rounded-sm bg-slate-900" />
+          <div className="absolute bottom-2 right-3 h-4 w-4 rounded-sm bg-slate-900" />
+        </div>
+        {Array.from({ length: 24 }).map((_, index) => (
+          <span
+            key={index}
+            className="absolute h-3 w-2 rounded-full bg-white/80"
+            style={{
+              left: `${6 + (index * 37) % 88}%`,
+              top: `${8 + (index * 19) % 52}%`,
+              transform: `rotate(${index * 31}deg)`,
+              backgroundColor: ["#fef08a", "#67e8f9", "#fda4af", "#bbf7d0"][index % 4],
+            }}
+          />
+        ))}
+        <section className="relative z-10 grid min-h-screen place-items-center px-5 py-10 text-center">
+          <div className="w-full max-w-xl rounded-[2rem] border-4 border-white/70 bg-slate-950/55 p-6 shadow-[0_30px_90px_rgba(15,23,42,0.35)] backdrop-blur-md sm:p-8">
+            <div className="relative mx-auto mb-4 h-20 w-20 rounded-full border-4 border-white bg-white shadow-2xl">
+              <span className="absolute left-7 top-3 h-6 w-6 rounded-md bg-slate-950" />
+              <span className="absolute bottom-4 left-4 h-5 w-5 rounded-md bg-slate-950" />
+              <span className="absolute bottom-4 right-4 h-5 w-5 rounded-md bg-slate-950" />
+            </div>
+            <h1 className="text-5xl font-black tracking-normal text-white drop-shadow sm:text-7xl">Fifa Online</h1>
+            <p className="mx-auto mt-3 max-w-md text-base font-bold text-cyan-50/90 sm:text-lg">
+              Build your club, set your squad, and kick off colorful arcade football.
+            </p>
+            <button
+              className="mt-7 w-full rounded-2xl bg-white px-6 py-4 text-lg font-black text-slate-950 shadow-xl transition hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-55"
+              disabled={!hasSupabaseConfig || !authChecked}
+              onClick={signInWithGoogle}
+            >
+              Sign in with Google
+            </button>
+            {!hasSupabaseConfig && <p className="mt-3 text-sm font-bold text-yellow-100">Supabase env vars are required before playing.</p>}
+            {!authChecked && hasSupabaseConfig && <p className="mt-3 text-sm font-bold text-cyan-50/80">Checking login...</p>}
+            {authStatus && <p className="mt-3 text-sm font-bold text-yellow-100">{authStatus}</p>}
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#07110c] text-white">
       <div ref={mountRef} className="absolute inset-0" aria-label="3D arcade soccer match" />
@@ -2064,21 +2391,11 @@ export function ArcadeSoccerGame() {
               <UserCircle size={18} className="shrink-0 text-cyan-200" />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-xs font-bold text-white">{playerLabel}</div>
-                <div className="text-[10px] uppercase text-emerald-100/55">{user ? "Signed in" : "Guest mode"}</div>
+                <div className="text-[10px] uppercase text-emerald-100/55">Signed in</div>
               </div>
-              {user ? (
-                <button aria-label="Sign out" className="grid h-8 w-8 place-items-center rounded-md border border-white/10" onClick={signOut}>
-                  <LogOut size={15} />
-                </button>
-              ) : (
-                <button
-                  className="rounded-md bg-white px-3 py-2 text-xs font-bold text-slate-950 disabled:cursor-not-allowed disabled:opacity-50"
-                  disabled={!hasSupabaseConfig}
-                  onClick={signInWithGoogle}
-                >
-                  Sign in with Google
-                </button>
-              )}
+              <button aria-label="Sign out" className="grid h-8 w-8 place-items-center rounded-md border border-white/10" onClick={signOut}>
+                <LogOut size={15} />
+              </button>
             </div>
           </div>
         </div>
@@ -2198,29 +2515,141 @@ export function ArcadeSoccerGame() {
             <div className="mb-4 flex items-center gap-3">
               {matchState === "ended" ? <Trophy className="text-lime-300" /> : <Users className="text-cyan-300" />}
               <div>
-                <h2 className="text-xl font-black">{matchState === "ended" ? `${resultText} ${score.home}-${score.away}` : "Choose match mode"}</h2>
+                <h2 className="text-xl font-black">{matchState === "ended" ? `${resultText} ${score.home}-${score.away}` : "Clubhouse"}</h2>
                 <p className="text-sm text-white/65">
-                  {matchState === "ended" ? `Score value ${matchScore}` : "Fast 11v11 soccer with a lightweight stadium, readable AI, and arcade controls."}
+                  {matchState === "ended" ? `Score value ${matchScore}` : "Set your fictional club, squad, formation, and match mode before kickoff."}
                 </p>
               </div>
             </div>
 
-            <div className="mb-4 grid gap-3 sm:grid-cols-2">
+            <div className="mb-4 grid grid-cols-5 gap-2 text-xs font-black uppercase">
+              {(["team", "squad", "formation", "match", "online"] as SetupTab[]).map((tab) => (
+                <button
+                  key={tab}
+                  className={`rounded-md border px-2 py-2 ${setupTab === tab ? "border-cyan-200 bg-cyan-300/20 text-cyan-50" : "border-white/10 bg-white/5 text-white/65"}`}
+                  onClick={() => setSetupTab(tab)}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            {setupTab === "team" && (
+              <div className="mb-4 rounded-md border border-white/10 bg-white/5 p-3">
+                <div className="mb-3 text-sm font-black text-cyan-100">Team selection</div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {TEAM_OPTIONS.map((team) => (
+                    <button
+                      key={team.key}
+                      className={`rounded-md border p-3 text-left transition ${selectedTeamKey === team.key ? "border-lime-200 bg-lime-300/15" : "border-white/10 bg-black/25 hover:bg-white/10"}`}
+                      onClick={() => setSelectedTeamKey(team.key)}
+                    >
+                      <div className="mb-2 flex gap-1">
+                        <span className="h-5 flex-1 rounded" style={{ backgroundColor: team.primary }} />
+                        <span className="h-5 flex-1 rounded" style={{ backgroundColor: team.secondary }} />
+                        <span className="h-5 flex-1 rounded" style={{ backgroundColor: team.accent }} />
+                      </div>
+                      <div className="font-black">{team.name}</div>
+                      <div className="text-xs text-white/55">Kit preview</div>
+                    </button>
+                  ))}
+                </div>
+                <button className="mt-3 rounded-md bg-lime-300 px-4 py-2 text-sm font-black text-slate-950" onClick={saveTeamSetup}>
+                  Save club setup
+                </button>
+                {setupStatus && <p className="mt-2 text-xs text-cyan-100/75">{setupStatus}</p>}
+              </div>
+            )}
+
+            {setupTab === "squad" && (
+              <div className="mb-4 max-h-[46vh] overflow-auto rounded-md border border-white/10 bg-white/5 p-3">
+                <div className="mb-3 text-sm font-black text-cyan-100">Squad management</div>
+                <div className="space-y-2">
+                  {squadPlayers.map((player) => (
+                    <div key={player.player_key} className="grid grid-cols-[1fr_64px_84px] gap-2">
+                      <input
+                        className="rounded-md border border-white/10 bg-black/35 px-3 py-2 text-sm outline-none focus:border-cyan-300"
+                        value={player.name}
+                        onChange={(event) => updateSquadPlayer(player.player_key, { name: event.target.value })}
+                      />
+                      <input
+                        className="rounded-md border border-white/10 bg-black/35 px-2 py-2 text-sm outline-none focus:border-cyan-300"
+                        type="number"
+                        min={1}
+                        max={99}
+                        value={player.jersey_number}
+                        onChange={(event) => updateSquadPlayer(player.player_key, { jersey_number: clamp(Number(event.target.value), 1, 99) })}
+                      />
+                      <input
+                        className="rounded-md border border-white/10 bg-black/35 px-2 py-2 text-sm uppercase outline-none focus:border-cyan-300"
+                        value={player.position}
+                        onChange={(event) => updateSquadPlayer(player.player_key, { position: event.target.value.toUpperCase().slice(0, 4) })}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <button className="mt-3 rounded-md bg-lime-300 px-4 py-2 text-sm font-black text-slate-950" onClick={saveTeamSetup}>
+                  Save squad
+                </button>
+                {setupStatus && <p className="mt-2 text-xs text-cyan-100/75">{setupStatus}</p>}
+              </div>
+            )}
+
+            {setupTab === "formation" && (
+              <div className="mb-4 rounded-md border border-white/10 bg-white/5 p-3">
+                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-sm font-black text-cyan-100">Formation setup</div>
+                    <div className="text-xs text-white/55">Assign your squad to each slot.</div>
+                  </div>
+                  <select
+                    className="rounded-md border border-white/10 bg-black/45 px-3 py-2 text-sm font-bold outline-none"
+                    value={formationName}
+                    onChange={(event) => changeFormation(event.target.value as FormationKey)}
+                  >
+                    {(Object.keys(FORMATION_OPTIONS) as FormationKey[]).map((formation) => (
+                      <option key={formation} value={formation}>{formation}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {FORMATION_OPTIONS[formationName].map((slot) => (
+                    <label key={slot.slot} className="grid grid-cols-[64px_1fr] items-center gap-2 rounded-md bg-black/25 px-3 py-2 text-sm">
+                      <span className="font-black text-lime-100">{slot.label}</span>
+                      <select
+                        className="min-w-0 rounded-md border border-white/10 bg-black/45 px-2 py-2 text-sm outline-none"
+                        value={formationAssignments[slot.slot] ?? ""}
+                        onChange={(event) => setFormationAssignments((current) => ({ ...current, [slot.slot]: event.target.value }))}
+                      >
+                        {squadPlayers.map((player) => (
+                          <option key={player.player_key} value={player.player_key}>
+                            {player.jersey_number} · {player.name} · {player.position}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+                <button className="mt-3 rounded-md bg-lime-300 px-4 py-2 text-sm font-black text-slate-950" onClick={saveTeamSetup}>
+                  Save formation
+                </button>
+                {setupStatus && <p className="mt-2 text-xs text-cyan-100/75">{setupStatus}</p>}
+              </div>
+            )}
+
+            {setupTab === "match" && <div className="mb-4 grid gap-3 sm:grid-cols-2">
               <ModeButton active={mode === "ai"} title="Player vs AI Team" onClick={() => setMode("ai")}>
-                Control one home player. Teammates and opponents are AI.
+                Control one {chosenTeam.name} player. Teammates and opponents are AI.
               </ModeButton>
               <ModeButton active={mode === "online"} title="Online 1v1 Lobby" onClick={() => setMode("online")}>
                 Signed-in users can create an ID, send requests, and start a Supabase room.
               </ModeButton>
-            </div>
+            </div>}
 
-            {mode === "online" && (
+            {setupTab === "online" && (
               <div className="mb-4 rounded-md border border-cyan-200/20 bg-cyan-200/8 p-3">
                 <div className="mb-2 text-sm font-black text-cyan-100">Online Multiplayer MVP</div>
-                {!user ? (
-                  <p className="text-sm text-white/65">Sign in with Google to create an online ID and send match requests.</p>
-                ) : (
-                  <div className="space-y-3">
+                <div className="space-y-3">
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <input
                         className="min-w-0 flex-1 rounded-md border border-white/15 bg-black/35 px-3 py-2 text-sm text-white outline-none focus:border-cyan-300"
@@ -2270,12 +2699,11 @@ export function ArcadeSoccerGame() {
                       <p className="rounded-md bg-emerald-300/15 px-3 py-2 text-xs text-emerald-100">Active room: {onlineMatch.id.slice(0, 8)}. Current MVP creates the room and lobby sync; full deterministic physics sync is documented as limited.</p>
                     )}
                     {onlineStatus && <p className="text-xs text-cyan-100/75">{onlineStatus}</p>}
-                  </div>
-                )}
+                </div>
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3">
+            {setupTab === "match" && <div className="grid grid-cols-2 gap-3">
               <button
                 className="inline-flex items-center justify-center gap-2 rounded-md bg-emerald-300 px-4 py-3 font-bold text-slate-950 transition hover:bg-emerald-200"
                 onClick={() => startMatch(mode)}
@@ -2290,12 +2718,11 @@ export function ArcadeSoccerGame() {
                 <RotateCcw size={18} />
                 Restart
               </button>
-            </div>
+            </div>}
 
             <div className="mt-5 border-t border-white/10 pt-4">
               <div className="mb-2 text-sm font-bold">Leaderboard</div>
               {!hasSupabaseConfig && <p className="mb-3 text-sm text-amber-200/85">Leaderboard is offline until Supabase env vars are added.</p>}
-              {hasSupabaseConfig && !user && <p className="mb-3 text-sm text-cyan-100/75">Guest play is enabled. Sign in to upload Player vs AI scores.</p>}
               {authStatus && <p className="mb-3 text-sm text-cyan-100/75">{authStatus}</p>}
               <div className="space-y-2">
                 {leaderboard.length === 0 ? (

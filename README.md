@@ -24,7 +24,7 @@ npm run dev
 
 Open `http://localhost:3000` in Brave Browser.
 
-Supabase is optional for local play. If `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY` is missing, matches still work and online login/leaderboard saving are disabled.
+Supabase is required to enter the game because Google login is required before play. If `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY` is missing, the pre-login screen remains visible and gameplay is blocked.
 
 ## Controls
 
@@ -69,7 +69,25 @@ Only use the Supabase anon key on the client. Do not expose service role keys.
 
 ## Supabase Setup
 
-Create a Supabase project, open the SQL editor, and run the full SQL saved in `supabase/leaderboard.sql`. The excerpt below shows the leaderboard core; the file also includes the exact online multiplayer tables, RLS policies, and realtime publication setup.
+Create a Supabase project, open the SQL editor, and run both SQL files:
+
+1. `supabase/leaderboard.sql`
+2. `supabase/online_multiplayer.sql`
+
+`supabase/online_multiplayer.sql` creates:
+
+- `profiles`
+- `teams`
+- `squads`
+- `formations`
+- `match_requests`
+- `online_matches`
+- `match_players`
+- `match_events`
+
+It also enables RLS, adds owner-only team/squad/formation editing policies, allows authenticated users to search profiles by game ID, and allows match requests/rooms only between logged-in users.
+
+The excerpt below shows the leaderboard core.
 
 ```sql
 create extension if not exists pgcrypto;
@@ -142,14 +160,7 @@ create index if not exists leaderboard_score_idx
 on leaderboard (score desc, created_at asc);
 ```
 
-The app validates nicknames as 2-16 characters and only submits positive integer scores. Guests can play, but only authenticated users can upload online scores.
-
-The SQL file also creates:
-
-- `profiles` for usernames and game IDs
-- `match_requests` for friend challenges
-- `matches` for accepted online rooms and realtime-ready JSON match state
-- RLS policies so authenticated users can only create/update their own profile, their own requests, and rooms they participate in
+The app validates nicknames as 2-16 characters and only submits positive integer scores. Guests cannot enter gameplay; authenticated users can play, configure teams, send match requests, and upload Player vs AI scores.
 
 ## Google OAuth Setup
 
@@ -171,7 +182,7 @@ If you deploy to a different Vercel domain, add that exact domain and wildcard r
 ## Connect Supabase To Vercel
 
 1. Push this repo to GitHub.
-2. Create or open a Supabase project and run `supabase/leaderboard.sql`.
+2. Create or open a Supabase project and run `supabase/leaderboard.sql` and `supabase/online_multiplayer.sql`.
 3. Enable Google OAuth in Supabase and add the Vercel/local redirect URLs.
 4. In Vercel, import the GitHub repo as a new project.
 5. Add these Environment Variables in Vercel Project Settings for Production, Preview, and Development:
@@ -195,15 +206,18 @@ npm run dev
 Use Brave Browser for the primary test pass.
 
 1. Open `http://localhost:3000` in Brave Browser.
-2. Test Player vs AI Team: kickoff, movement, shooting, scoring, kickoff reset, timer, and end screen.
-3. Confirm Guest mode can play without crashing and cannot upload an online score.
-4. Sign in with Google through Supabase Auth.
-5. Confirm the signed-in display name or email appears.
-6. Create an online username/game ID.
-7. Send and accept a match request from another signed-in account.
-8. Confirm an online room appears and can start the match shell.
-9. Save a Player vs AI score and confirm it appears in the leaderboard.
-10. Use the logout button and confirm the UI returns to Guest mode.
+2. Confirm logged-out users only see the colorful login/start screen and cannot start a match.
+3. Sign in with Google through Supabase Auth.
+4. Confirm the signed-in display name or email appears.
+5. Select a fictional team and save the club setup.
+6. Edit squad names, jersey numbers, and positions, then save the squad.
+7. Pick a formation, assign players to slots, and save the formation.
+8. Start Player vs AI Team and confirm selected kit colors appear in-game.
+9. Create an online username/game ID.
+10. Send and accept a match request from another signed-in account.
+11. Confirm an online room appears and can start the match shell.
+12. Save a Player vs AI score and confirm it appears in the leaderboard.
+13. Use the logout button and confirm the UI returns to the login/start screen.
 
 ## Deploy On Vercel
 
