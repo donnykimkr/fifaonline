@@ -224,6 +224,7 @@ const GOAL_SIDE_POST_INSET = 0.26;
 const BROADCAST_CAMERA_X = -FIELD_W / 2 - 28;
 const BROADCAST_CAMERA_Y = 38;
 const BROADCAST_CAMERA_Z = 7.5;
+const BROADCAST_CAMERA_Z_OFFSET = 7.5;
 const BROADCAST_LOOK_AT_X = 0;
 const BROADCAST_LOOK_AT_Y = 1.05;
 const BROADCAST_LOOK_AT_Z = 0;
@@ -1848,10 +1849,11 @@ export function ArcadeSoccerGame() {
 
   const skipWalkout = useCallback(() => {
     const active = sceneRef.current;
-    if (!active || active.state !== "playing" || active.phase !== "walkout") return;
+    if (!active || active.state !== "playing") return;
+    if (active.phase !== "walkout" && phaseUi !== "walkout") return;
     finishWalkoutToKickoff(active);
     setPhaseUi(active.phase);
-  }, []);
+  }, [phaseUi]);
 
   const respondToMatchRequest = useCallback(async (request: MatchRequestRow, status: "accepted" | "declined") => {
     const supabase = getSupabaseClient();
@@ -2215,22 +2217,32 @@ export function ArcadeSoccerGame() {
         active.ball.rotation.y += dt * 0.35;
       }
 
+      const controlledFocus = active.players.find((player) => player.controlledBy === "p1");
+      const playerFocus = controlledFocus?.pos ?? active.ballPos;
+      const blendedFocus = active.ballPos.clone().lerp(playerFocus, 0.22);
+      const focusZ = clamp(blendedFocus.z, -FIELD_L / 2 - 10, FIELD_L / 2 + 10);
+      const shouldFollowPlay = active.state === "playing" && active.phase !== "walkout" && active.phase !== "halftime";
       const desired = active.phase === "walkout"
         ? new THREE.Vector3(BROADCAST_CAMERA_X + 5, 11.2, -8)
-        : new THREE.Vector3(
+        : shouldFollowPlay
+          ? new THREE.Vector3(BROADCAST_CAMERA_X, BROADCAST_CAMERA_Y, focusZ + BROADCAST_CAMERA_Z_OFFSET)
+          : new THREE.Vector3(
           BROADCAST_CAMERA_X,
           BROADCAST_CAMERA_Y,
           BROADCAST_CAMERA_Z,
         );
-      active.camera.position.lerp(desired, active.phase === "walkout" ? 1 - Math.pow(0.0008, dt) : 1);
+      desired.z = clamp(desired.z, -FIELD_L / 2 - 10, FIELD_L / 2 + 10);
+      active.camera.position.lerp(desired, shouldFollowPlay || active.phase === "walkout" ? 1 - Math.pow(0.0008, dt) : 1);
       const desiredLookAt = active.phase === "walkout"
         ? new THREE.Vector3(-4, 1.45, 0)
-        : new THREE.Vector3(
+        : shouldFollowPlay
+          ? new THREE.Vector3(BROADCAST_LOOK_AT_X, BROADCAST_LOOK_AT_Y, focusZ)
+          : new THREE.Vector3(
           BROADCAST_LOOK_AT_X,
           BROADCAST_LOOK_AT_Y,
           BROADCAST_LOOK_AT_Z,
         );
-      active.cameraLookAt.lerp(desiredLookAt, active.phase === "walkout" ? 1 - Math.pow(0.0016, dt) : 1);
+      active.cameraLookAt.lerp(desiredLookAt, shouldFollowPlay || active.phase === "walkout" ? 1 - Math.pow(0.0016, dt) : 1);
       active.camera.up.set(0, 1, 0);
       active.camera.lookAt(active.cameraLookAt);
       active.renderer.render(active.scene, active.camera);
@@ -2410,8 +2422,15 @@ export function ArcadeSoccerGame() {
       )}
       {matchState === "playing" && phaseUi === "walkout" && (
         <button
-          className="pointer-events-auto absolute left-1/2 top-24 z-30 -translate-x-1/2 rounded-full border border-white/20 bg-black/45 px-5 py-2 text-xs font-black uppercase tracking-wide text-white shadow-2xl backdrop-blur-md active:bg-white/15"
+          type="button"
+          className="pointer-events-auto fixed left-1/2 top-24 z-[70] -translate-x-1/2 rounded-full border border-white/20 bg-black/70 px-5 py-2 text-xs font-black uppercase tracking-wide text-white shadow-2xl backdrop-blur-md active:bg-white/15"
+          style={{ touchAction: "manipulation" }}
           onClick={skipWalkout}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            skipWalkout();
+          }}
         >
           Skip walkout
         </button>
@@ -2854,7 +2873,7 @@ function updateMatch(
           ? playerInput(keys, "p2")
           : aiInput(player, active)
       : active.phase === "walkout"
-        ? walkoutInput(player, active)
+        ? walkoutInput(player)
       : restartShapeInput(player, active);
     if (player.supportRunTimer > 0 && active.ballOwnerId !== player.id) {
       const supportDir = player.supportRunTarget.clone().sub(player.pos);
@@ -2881,7 +2900,7 @@ function updateMatch(
     player.supportRunTimer = Math.max(0, player.supportRunTimer - dt);
     const recoveryScale = player.recoveryTimer > 0 ? 0.48 : 1;
     movePlayer(player, input.dir, maxSpeed * recoveryScale * speedScale, dt, active);
-    clampPlayer(player);
+    if (active.phase !== "walkout") clampPlayer(player);
     player.mesh.position.copy(player.pos);
     animatePlayer(player, dt);
     updateStuckState(player, input.dir, active, dt);
@@ -3388,15 +3407,22 @@ function restartShapeInput(player: PlayerBody, active: MatchRuntime) {
   return { dir: dir.lengthSq() > 0.5 ? dir.normalize() : dir.set(0, 0, 0), sprint: false };
 }
 
+function walkoutOrder(player: PlayerBody) {
+  if (player.role === "keeper") return 0;
+  const match = player.id.match(/-(\d+)$/);
+  return match ? clamp(Number(match[1]), 1, 10) : clamp(player.number, 1, 10);
+}
+
 function walkoutTarget(player: PlayerBody) {
   const laneZ = player.team === "home" ? -4.2 : 4.2;
-  const order = player.role === "keeper" ? 0 : Math.max(1, player.number - 1);
-  return new THREE.Vector3(-22 + order * 3.9, 0, laneZ);
+  const order = walkoutOrder(player);
+  return new THREE.Vector3(-22 + order * 4.4, 0, laneZ);
 }
 
 function walkoutStart(player: PlayerBody) {
   const target = walkoutTarget(player);
-  return new THREE.Vector3(target.x - 50, 0, target.z);
+  const order = walkoutOrder(player);
+  return new THREE.Vector3(-FIELD_W / 2 - 18 - Math.min(order, 5) * 1.8, 0, target.z);
 }
 
 function beginWalkout(active: MatchRuntime) {
@@ -3439,14 +3465,13 @@ function finishWalkoutToKickoff(active: MatchRuntime) {
   active.ballVel.set(0, 0, 0);
 }
 
-function walkoutInput(player: PlayerBody, active: MatchRuntime): PlayerInputState {
+function walkoutInput(player: PlayerBody): PlayerInputState {
   const target = walkoutTarget(player);
-  const finalSeconds = active.phaseTimer < 1.6;
   const dir = target.sub(player.pos);
   return {
-    dir: dir.lengthSq() > 0.35 && !finalSeconds ? dir.normalize() : dir.set(0, 0, 0),
+    dir: dir.lengthSq() > 0.18 ? dir.normalize() : dir.set(0, 0, 0),
     sprint: false,
-    speedScale: 0.54,
+    speedScale: 0.82,
   };
 }
 
