@@ -1419,6 +1419,7 @@ export function ArcadeSoccerGame() {
   const sceneRef = useRef<MatchRuntime | null>(null);
   const virtualControlsRef = useRef<VirtualControls>({ dir: new THREE.Vector3(), strength: 0, sprint: false });
   const joystickPointerRef = useRef<number | null>(null);
+  const setupDirtyRef = useRef(false);
 
   const [mode, setMode] = useState<GameMode>("ai");
   const [matchState, setMatchState] = useState<MatchState>("menu");
@@ -1471,12 +1472,14 @@ export function ArcadeSoccerGame() {
   }, [formationAssignments, formationName, selectedTeamKey, squadPlayers]);
 
   const updateSquadPlayer = useCallback((playerKey: string, patch: Partial<SquadPlayer>) => {
+    setupDirtyRef.current = true;
     setSquadPlayers((players) => players.map((player) => (
       player.player_key === playerKey ? { ...player, ...patch } : player
     )));
   }, []);
 
   const changeFormation = useCallback((nextFormation: FormationKey) => {
+    setupDirtyRef.current = true;
     setFormationName(nextFormation);
     setFormationAssignments((current) => {
       const next = defaultFormationAssignments(nextFormation, squadPlayers);
@@ -1486,6 +1489,13 @@ export function ArcadeSoccerGame() {
       return next;
     });
   }, [squadPlayers]);
+
+  const selectTeam = useCallback((teamKey: FictionalTeamKey) => {
+    setupDirtyRef.current = true;
+    setSelectedTeamKey(teamKey);
+    applyActiveHomeSetup(teamKey, formationName, squadPlayers, formationAssignments);
+    setSetupStatus(`${selectedTeamOption(teamKey).name} selected. Save club setup to keep it online.`);
+  }, [formationAssignments, formationName, squadPlayers]);
 
   const loadTeamSetup = useCallback(async (sessionUser = user) => {
     const supabase = getSupabaseClient();
@@ -1499,6 +1509,7 @@ export function ArcadeSoccerGame() {
       setSetupStatus("Team database is not ready yet. Applying the Supabase SQL will enable saving.");
       return;
     }
+    if (setupDirtyRef.current) return;
     const teamKey = teamResult.data?.team_key as FictionalTeamKey | undefined;
     if (teamKey && TEAM_OPTIONS.some((team) => team.key === teamKey)) setSelectedTeamKey(teamKey);
     const loadedSquad = (squadResult.data ?? []) as SquadPlayer[];
@@ -1554,6 +1565,7 @@ export function ArcadeSoccerGame() {
       setSetupStatus(formationSave.error.message);
       return;
     }
+    setupDirtyRef.current = false;
     setSetupStatus("Saved team, squad, and formation.");
   }, [formationAssignments, formationName, selectedTeamKey, squadPlayers, user]);
 
@@ -1809,6 +1821,27 @@ export function ArcadeSoccerGame() {
     virtualControlsRef.current.sprint = false;
     setJoystickKnob({ x: 0, y: 0 });
   }, []);
+
+  const endMatch = useCallback(() => {
+    const active = sceneRef.current;
+    if (active) {
+      active.state = "menu";
+      active.phase = "kickoff";
+      active.phaseTimer = 0;
+      active.eventText = "Kickoff";
+      active.eventTimer = 0;
+      active.ballOwnerId = null;
+      active.ballState = "loose";
+      active.possession = null;
+      active.shotCharge = 0;
+      active.shotChargingPlayerId = null;
+      resetPositions("home");
+    }
+    setMatchState("menu");
+    setPhaseUi("kickoff");
+    setShotChargeUi(0);
+    setSaveStatus("");
+  }, [resetPositions]);
 
   const startMatch = useCallback((nextMode = mode) => {
     const active = sceneRef.current;
@@ -2404,6 +2437,15 @@ export function ArcadeSoccerGame() {
         </div>
         <div />
       </section>
+      {matchState === "playing" && (
+        <button
+          type="button"
+          className="pointer-events-auto fixed right-4 top-28 z-[70] rounded-md border border-rose-200/30 bg-rose-500/75 px-4 py-2 text-xs font-black uppercase tracking-wide text-white shadow-2xl backdrop-blur-md active:bg-rose-400/85 sm:right-6"
+          onClick={endMatch}
+        >
+          End game
+        </button>
+      )}
       {matchState === "playing" && shotChargeUi > 0 && (
         <div
           className="pointer-events-none fixed z-20 w-24 -translate-x-1/2 rounded-full border border-white/35 bg-black/55 p-1 shadow-2xl backdrop-blur"
@@ -2552,7 +2594,7 @@ export function ArcadeSoccerGame() {
                     <button
                       key={team.key}
                       className={`rounded-md border p-3 text-left transition ${selectedTeamKey === team.key ? "border-lime-200 bg-lime-300/15" : "border-white/10 bg-black/25 hover:bg-white/10"}`}
-                      onClick={() => setSelectedTeamKey(team.key)}
+                      onClick={() => selectTeam(team.key)}
                     >
                       <div className="mb-2 flex gap-1">
                         <span className="h-5 flex-1 rounded" style={{ backgroundColor: team.primary }} />
@@ -2629,7 +2671,10 @@ export function ArcadeSoccerGame() {
                       <select
                         className="min-w-0 rounded-md border border-white/10 bg-black/45 px-2 py-2 text-sm outline-none"
                         value={formationAssignments[slot.slot] ?? ""}
-                        onChange={(event) => setFormationAssignments((current) => ({ ...current, [slot.slot]: event.target.value }))}
+                        onChange={(event) => {
+                          setupDirtyRef.current = true;
+                          setFormationAssignments((current) => ({ ...current, [slot.slot]: event.target.value }));
+                        }}
                       >
                         {squadPlayers.map((player) => (
                           <option key={player.player_key} value={player.player_key}>
@@ -2825,6 +2870,8 @@ function updateMatch(
     }
   } else if (active.phase === "walkout") {
     active.phaseTimer = Math.max(0, active.phaseTimer - dt);
+    const walkoutSettled = active.players.every((player) => player.pos.distanceTo(walkoutTarget(player)) < 0.7);
+    if (walkoutSettled && active.phaseTimer < 5.4) active.phaseTimer = 0;
     if (active.phaseTimer <= 0) finishWalkoutToKickoff(active);
   } else {
     const actor = active.restartActorId ? active.players.find((player) => player.id === active.restartActorId) : null;
@@ -3427,7 +3474,7 @@ function walkoutStart(player: PlayerBody) {
 
 function beginWalkout(active: MatchRuntime) {
   active.phase = "walkout";
-  active.phaseTimer = 10;
+  active.phaseTimer = 7.2;
   active.eventText = "PLAYER WALKOUT";
   active.eventTimer = 0;
   active.cooldown = 0;
