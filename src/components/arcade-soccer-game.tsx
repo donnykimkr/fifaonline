@@ -448,21 +448,13 @@ const P1_ACTIVITY_KEYS = new Set([
   "KeyE",
   "KeyQ",
   "KeyS",
+  "KeyU",
   "KeyW",
   "KeyZ",
 ]);
 
-function hasP1HumanInput(keys: Set<string>, virtualControls?: VirtualControls) {
-  if (virtualControls && (virtualControls.strength > 0.04 || virtualControls.sprint)) return true;
-  for (const code of P1_ACTIVITY_KEYS) {
-    if (keys.has(code)) return true;
-  }
-  return false;
-}
-
 function noteP1Activity(active: MatchRuntime) {
   active.p1IdleTimer = 0;
-  active.p1Autopilot = false;
 }
 
 function createTorsoGeometry() {
@@ -919,6 +911,7 @@ export function ArcadeSoccerGame() {
   const [shotChargeUi, setShotChargeUi] = useState(0);
   const [shotChargePosition, setShotChargePosition] = useState({ x: 0, y: 0 });
   const [phaseUi, setPhaseUi] = useState<PlayPhase>("kickoff");
+  const [p1AiUi, setP1AiUi] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [joystickKnob, setJoystickKnob] = useState({ x: 0, y: 0 });
   const [onlineProfile, setOnlineProfile] = useState<OnlineProfile | null>(null);
@@ -929,21 +922,30 @@ export function ArcadeSoccerGame() {
   const [outgoingRequests, setOutgoingRequests] = useState<MatchRequestRow[]>([]);
   const [onlineMatch, setOnlineMatch] = useState<OnlineMatchRow | null>(null);
   const [authChecked, setAuthChecked] = useState(!hasSupabaseConfig);
+  const [perfDebugBypass, setPerfDebugBypass] = useState(false);
   const [setupTab, setSetupTab] = useState<SetupTab>("team");
   const [selectedTeamKey, setSelectedTeamKey] = useState<FictionalTeamKey>(DEFAULT_TEAM_KEY);
   const [squadPlayers, setSquadPlayers] = useState<SquadPlayer[]>(() => defaultSquadPlayers());
   const [formationName, setFormationName] = useState<FormationKey>("4-3-3");
   const [formationAssignments, setFormationAssignments] = useState<Record<string, string>>(() => defaultFormationAssignments("4-3-3"));
   const [setupStatus, setSetupStatus] = useState("");
+  const scoreUiRef = useRef({ home: 0, away: 0 });
+  const gameClockUiRef = useRef(0);
+  const phaseUiRef = useRef<PlayPhase>("kickoff");
+  const shotChargeUiRef = useRef(0);
+  const p1AiUiRef = useRef(false);
 
-  const perfDebugBypass = typeof window !== "undefined"
-    && process.env.NODE_ENV !== "production"
-    && new URLSearchParams(window.location.search).has("perf");
   const playerLabel = user?.user_metadata?.full_name || user?.email || (perfDebugBypass ? "Perf Test" : "Player");
   const matchScore = useMemo(() => scoreMatch(score.home, score.away), [score]);
   const resultText = score.home > score.away ? "Win" : score.home < score.away ? "Lose" : "Draw";
   const chosenTeam = selectedTeamOption(selectedTeamKey);
   const isSignedIn = Boolean(user) || perfDebugBypass;
+
+  const syncP1AiUi = useCallback((enabled: boolean) => {
+    if (p1AiUiRef.current === enabled) return;
+    p1AiUiRef.current = enabled;
+    setP1AiUi(enabled);
+  }, []);
 
   useEffect(() => {
     applyActiveHomeSetup(selectedTeamKey, formationName, squadPlayers, formationAssignments);
@@ -1198,18 +1200,25 @@ export function ArcadeSoccerGame() {
     }
   }, []);
 
-  const performMobileAction = useCallback((action: "pass" | "through" | "shoot" | "fullscreen") => {
+  const performMobileAction = useCallback((action: "pass" | "through" | "shoot" | "fullscreen" | "ai") => {
     const active = sceneRef.current;
-    const p1 = active?.players.find((player) => player.controlledBy === "p1");
     if (action === "fullscreen") {
       void requestGameFullscreen();
       return;
     }
+    if (action === "ai") {
+      if (!active || active.state !== "playing") return;
+      setP1AutopilotMode(active, !active.p1Autopilot);
+      syncP1AiUi(active.p1Autopilot);
+      return;
+    }
+    const p1 = active?.players.find((player) => player.controlledBy === "p1");
     if (!active || !p1 || active.state !== "playing" || active.phase !== "open") return;
+    if (active.p1Autopilot) return;
     if (action === "pass") performPass(p1, active, "short");
     if (action === "through") performPass(p1, active, "through");
     if (action === "shoot") shoot(p1, active, "shot");
-  }, [requestGameFullscreen]);
+  }, [requestGameFullscreen, syncP1AiUi]);
 
   const resetPositions = useCallback((servingTeam: TeamId = "home") => {
     const active = sceneRef.current;
@@ -1268,7 +1277,8 @@ export function ArcadeSoccerGame() {
     active.tackleLockTimer = 0;
     active.lastTouchTeam = servingTeam;
     active.lastTouchPlayerId = null;
-  }, []);
+    syncP1AiUi(false);
+  }, [syncP1AiUi]);
 
   const updateJoystickFromPointer = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -1316,9 +1326,14 @@ export function ArcadeSoccerGame() {
       resetPositions("home");
     }
     setMatchState("menu");
+    scoreUiRef.current = { home: 0, away: 0 };
+    gameClockUiRef.current = 0;
+    phaseUiRef.current = "kickoff";
+    shotChargeUiRef.current = 0;
     setPhaseUi("kickoff");
     setShotChargeUi(0);
-  }, [resetPositions]);
+    syncP1AiUi(false);
+  }, [resetPositions, syncP1AiUi]);
 
   const startMatch = useCallback((nextMode = mode) => {
     const active = sceneRef.current;
@@ -1350,6 +1365,10 @@ export function ArcadeSoccerGame() {
     active.players = formationPlayers(nextMode, 1);
     active.players.forEach((player) => active.scene.add(player.mesh));
     setMode(nextMode);
+    scoreUiRef.current = { home: 0, away: 0 };
+    gameClockUiRef.current = 0;
+    phaseUiRef.current = "kickoff";
+    shotChargeUiRef.current = 0;
     setScore({ home: 0, away: 0 });
     setGameClock(0);
     resetPositions("home");
@@ -1421,6 +1440,17 @@ export function ArcadeSoccerGame() {
       compact.removeEventListener("change", update);
       document.removeEventListener("fullscreenchange", onFullscreenChange);
     };
+  }, []);
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    const enabled = new URLSearchParams(window.location.search).has("perf");
+    if (!enabled) return;
+    const timer = window.setTimeout(() => {
+      setPerfDebugBypass(true);
+      setAuthChecked(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -1555,6 +1585,7 @@ export function ArcadeSoccerGame() {
     const onFieldPointerDown = (event: PointerEvent) => {
       const active = sceneRef.current;
       if (!active || active.state !== "playing" || active.phase !== "open" || event.button !== 0) return;
+      if (active.p1Autopilot) return;
       noteP1Activity(active);
       const p1 = active.players.find((player) => player.controlledBy === "p1");
       if (!p1) return;
@@ -1702,11 +1733,25 @@ export function ArcadeSoccerGame() {
       const shouldUpdateHud = performance.now() - active.lastHudUpdate > (chargingPlayer ? 90 : 180);
       if (shouldUpdateHud) {
         active.lastHudUpdate = performance.now();
-        setScore({ ...active.score });
-        setGameClock(active.gameClock);
-        setPhaseUi(active.phase);
-        setShotChargeUi(chargingPlayer ? active.shotCharge : 0);
-        if (chargingPlayer) setShotChargePosition(playerScreenGaugePosition(active, chargingPlayer));
+        if (scoreUiRef.current.home !== active.score.home || scoreUiRef.current.away !== active.score.away) {
+          scoreUiRef.current = { ...active.score };
+          setScore({ ...active.score });
+        }
+        if (Math.floor(gameClockUiRef.current) !== Math.floor(active.gameClock)) {
+          gameClockUiRef.current = active.gameClock;
+          setGameClock(active.gameClock);
+        }
+        if (phaseUiRef.current !== active.phase) {
+          phaseUiRef.current = active.phase;
+          setPhaseUi(active.phase);
+        }
+        const nextShotCharge = chargingPlayer ? active.shotCharge : 0;
+        if (Math.abs(shotChargeUiRef.current - nextShotCharge) > 0.025 || (!chargingPlayer && shotChargeUiRef.current !== 0)) {
+          shotChargeUiRef.current = nextShotCharge;
+          setShotChargeUi(nextShotCharge);
+          if (chargingPlayer) setShotChargePosition(playerScreenGaugePosition(active, chargingPlayer));
+        }
+        syncP1AiUi(active.p1Autopilot);
       }
       if (active.gameClock >= FULL_TIME_SECONDS) {
         active.state = "ended";
@@ -1803,14 +1848,29 @@ export function ArcadeSoccerGame() {
       }
       if (sceneRef.current === runtime) sceneRef.current = null;
     };
-  }, [isSignedIn]);
+  }, [isSignedIn, syncP1AiUi]);
 
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
       keysRef.current.add(event.code);
       const active = sceneRef.current;
+      if (active?.state === "playing" && event.code === "KeyU") {
+        setP1AutopilotMode(active, !active.p1Autopilot);
+        syncP1AiUi(active.p1Autopilot);
+        event.preventDefault();
+        return;
+      }
       if (active?.state === "playing" && P1_ACTIVITY_KEYS.has(event.code)) noteP1Activity(active);
       if (!event.repeat && active?.state === "playing" && active.phase === "open") {
+        if (active.p1Autopilot) {
+          event.preventDefault();
+          return;
+        }
+        if (event.code === "KeyS") {
+          switchToClosestTeammateToBall(active, "home", "p1");
+          event.preventDefault();
+          return;
+        }
         if (event.code === "KeyE") {
           switchToBestManualPlayer(active, "p1");
           event.preventDefault();
@@ -1824,7 +1884,7 @@ export function ArcadeSoccerGame() {
         }
         if (p1) handleFifaActionKey(p1, event.code, keysRef.current, active);
       }
-      if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "KeyA", "KeyD", "KeyE", "KeyS", "KeyW"].includes(event.code)) event.preventDefault();
+      if (["Space", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "KeyA", "KeyD", "KeyE", "KeyS", "KeyU", "KeyW"].includes(event.code)) event.preventDefault();
     };
     const up = (event: KeyboardEvent) => {
       const active = sceneRef.current;
@@ -1840,7 +1900,7 @@ export function ArcadeSoccerGame() {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
     };
-  }, []);
+  }, [syncP1AiUi]);
 
   if (!isSignedIn) {
     return (
@@ -2045,6 +2105,9 @@ export function ArcadeSoccerGame() {
             </div>
             <div className="absolute bottom-1 left-0 sm:bottom-2 sm:left-2">
               <TouchButton label="Pass" tone="cyan" onPress={() => performMobileAction("pass")} />
+            </div>
+            <div className="absolute bottom-2 right-20 sm:bottom-3 sm:right-24">
+              <TouchButton label={p1AiUi ? "AI ON" : "AI OFF"} active={p1AiUi} tone="green" onPress={() => performMobileAction("ai")} />
             </div>
             <div className="absolute right-1 top-4 sm:right-2 sm:top-6">
               <TouchButton label="Shoot" tone="red" strong onPress={() => performMobileAction("shoot")} />
@@ -2308,7 +2371,6 @@ function updateMatch(
   const ballVel = active.ballVel;
   const p1 = active.players.find((player) => player.controlledBy === "p1");
   const p2 = active.players.find((player) => player.controlledBy === "p2");
-  const p1HasHumanInput = hasP1HumanInput(keys, virtualControls);
   active.ballIgnoreTimer = Math.max(0, active.ballIgnoreTimer - dt);
   active.tackleLockTimer = Math.max(0, active.tackleLockTimer - dt);
   active.aiChanceCooldown = Math.max(0, active.aiChanceCooldown - dt);
@@ -2316,13 +2378,6 @@ function updateMatch(
   active.goalKickLockTimer = Math.max(0, active.goalKickLockTimer - dt);
   active.restartBoundaryGuardTimer = Math.max(0, active.restartBoundaryGuardTimer - dt);
   if (active.goalKickLockTimer === 0) active.goalKickLockPlayerId = null;
-  if (p1HasHumanInput) {
-    active.p1IdleTimer = 0;
-    active.p1Autopilot = false;
-  } else if (active.state === "playing" && active.phase === "open") {
-    active.p1IdleTimer += dt;
-    if (active.p1IdleTimer >= 10) active.p1Autopilot = true;
-  }
   if (active.shotChargingPlayerId) {
     const chargingPlayer = active.players.find((player) => player.id === active.shotChargingPlayerId);
     if (!chargingPlayer || active.phase !== "open" || active.ballOwnerId !== chargingPlayer.id || !keys.has("KeyD")) {
@@ -2393,7 +2448,7 @@ function updateMatch(
     }
     const input: PlayerInputState = active.phase === "open"
       ? player.controlledBy === "p1"
-        ? active.p1Autopilot && !p1HasHumanInput
+        ? active.p1Autopilot
           ? cachedAiInput(player, active, dt)
           : playerInput(keys, "p1", virtualControls, active.camera)
         : player.controlledBy === "p2"
@@ -2437,7 +2492,7 @@ function updateMatch(
   updateAimIndicators(active, keys);
 
   if (active.phase === "open") {
-    updateUserAutoSwitch(active);
+    if (active.p1Autopilot) updateUserAutoSwitch(active);
     encourageAiFinishing(active);
     createLateAiChance(active);
     handleAction(p2, keys.has("Enter") || keys.has("ShiftRight"), active);
@@ -4124,7 +4179,7 @@ function releasePossession(active: MatchRuntime, ballState: BallState) {
   active.ballOwnerId = null;
   active.possession = null;
   if (ballState !== "kicked") active.intendedReceiverId = null;
-  if (ballState === "loose" && previousOwner?.team === "home") {
+  if (active.p1Autopilot && ballState === "loose" && previousOwner?.team === "home") {
     switchToClosestTeammateToBall(active, "home", "p1");
   }
 }
@@ -4168,6 +4223,7 @@ function switchToClosestTeammateToBall(active: MatchRuntime, team: TeamId, contr
 }
 
 function autoSwitchToPossessor(active: MatchRuntime, player: PlayerBody) {
+  if (!active.p1Autopilot) return;
   if (player.sentOff) return;
   if (player.role === "keeper") {
     if (player.team !== "home") switchToClosestTeammateToBall(active, "home", "p1");
@@ -4178,6 +4234,7 @@ function autoSwitchToPossessor(active: MatchRuntime, player: PlayerBody) {
 }
 
 function updateUserAutoSwitch(active: MatchRuntime) {
+  if (!active.p1Autopilot) return;
   if (active.phase !== "open") return;
   const owner = ballOwner(active);
   if (owner?.team === "home" && owner.role !== "keeper") {
@@ -4196,6 +4253,15 @@ function updateUserAutoSwitch(active: MatchRuntime) {
   if (!current || current.id !== closest.id && currentDistance > closestDistance + 1.4) {
     setControlledPlayer(active, closest, "p1");
   }
+}
+
+function setP1AutopilotMode(active: MatchRuntime, enabled: boolean) {
+  active.p1Autopilot = enabled;
+  active.p1IdleTimer = 0;
+  active.shotCharge = 0;
+  active.shotChargingPlayerId = null;
+  active.shotConsumed = false;
+  if (enabled) switchToClosestTeammateToBall(active, "home", "p1");
 }
 
 function currentAimDirection(player: PlayerBody, active: MatchRuntime, keys?: Set<string>) {
