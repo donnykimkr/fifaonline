@@ -27,13 +27,16 @@ create table if not exists public.game_sessions (
 create table if not exists public.rooms (
   id uuid primary key default gen_random_uuid(),
   room_code text unique not null,
-  host_visitor_id text not null references public.visitors(visitor_id) on delete cascade,
-  guest_visitor_id text references public.visitors(visitor_id) on delete set null,
+  host_visitor_id text not null,
+  guest_visitor_id text,
   status text not null default 'waiting' check (status in ('waiting', 'ready', 'active', 'ended')),
   state jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.rooms drop constraint if exists rooms_host_visitor_id_fkey;
+alter table public.rooms drop constraint if exists rooms_guest_visitor_id_fkey;
 
 create or replace function public.touch_room_updated_at()
 returns trigger
@@ -90,7 +93,7 @@ for all
 to anon, authenticated
 using (true)
 with check (
-  char_length(room_code) between 4 and 12
+  room_code ~ '^[0-9]{4}$'
   and status in ('waiting', 'ready', 'active', 'ended')
 );
 

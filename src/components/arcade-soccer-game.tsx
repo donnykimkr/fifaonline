@@ -392,12 +392,28 @@ async function ensureVisitorRecord(visitorId: string) {
   const { error } = await supabase
     .from("visitors")
     .upsert({ visitor_id: visitorId, last_seen: now }, { onConflict: "visitor_id" });
-  return !error;
+  if (error) {
+    console.warn("Fifa Online visitor upsert failed", error.message);
+    return false;
+  }
+  const { data, error: verifyError } = await supabase
+    .from("visitors")
+    .select("visitor_id")
+    .eq("visitor_id", visitorId)
+    .maybeSingle();
+  if (verifyError || !data) {
+    console.warn("Fifa Online visitor verify failed", verifyError?.message ?? "visitor row missing");
+    return false;
+  }
+  return true;
 }
 
 function roomSetupErrorMessage(message: string) {
   if (message.includes("public.rooms") || message.includes("schema cache") || message.includes("Could not find the table")) {
     return "Room setup unavailable: Supabase is missing public.rooms. Run supabase/anonymous_analytics.sql in the Supabase SQL editor, then retry.";
+  }
+  if (message.includes("rooms_host_visitor_id_fkey") || message.includes("foreign key constraint")) {
+    return "Room setup unavailable: anonymous visitor registration failed before room creation. Rerun supabase/anonymous_analytics.sql, then retry.";
   }
   return `Room setup unavailable: ${message}`;
 }
@@ -432,7 +448,11 @@ async function finishAnalyticsSession(session: GameSessionAnalytics | null, visi
 }
 
 function createRoomCode() {
-  return Math.random().toString(36).slice(2, 8).toUpperCase();
+  return String(Math.floor(1000 + Math.random() * 9000));
+}
+
+function normalizeRoomCode(value: string) {
+  return value.replace(/\D/g, "").slice(0, 4);
 }
 
 function teamGoalZ(team: TeamId, half: 1 | 2) {
@@ -1040,33 +1060,39 @@ export function ArcadeSoccerGame() {
       setRoomStatus("Room setup unavailable: Supabase analytics tables are missing. Run supabase/anonymous_analytics.sql first.");
       return;
     }
-    const nextCode = createRoomCode();
-    const { data, error } = await supabase
-      .from("rooms")
-      .insert({ room_code: nextCode, host_visitor_id: visitorId, status: "waiting", state: { createdBy: "host" } })
-      .select("*")
-      .single();
-    if (error) {
-      setRoomStatus(roomSetupErrorMessage(error.message));
-      return;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const nextCode = createRoomCode();
+      const { data, error } = await supabase
+        .from("rooms")
+        .insert({ room_code: nextCode, host_visitor_id: visitorId, status: "waiting", state: { createdBy: "host" } })
+        .select("*")
+        .single();
+      if (!error) {
+        setRoomCode(nextCode);
+        setActiveRoom(data as RoomRecord);
+        setMode("online");
+        setRoomStatus("Room created. Share the 4-digit code with another player.");
+        return;
+      }
+      if (!error.message.includes("duplicate key") && error.code !== "23505") {
+        setRoomStatus(roomSetupErrorMessage(error.message));
+        return;
+      }
     }
-    setRoomCode(nextCode);
-    setActiveRoom(data as RoomRecord);
-    setMode("online");
-    setRoomStatus("Room created. Share the code with another player.");
+    setRoomStatus("Could not create a unique 4-digit room code. Try again.");
   }, []);
 
   const joinOnlineRoom = useCallback(async () => {
     const supabase = getSupabaseClient();
     const visitorId = visitorIdRef.current ?? getAnonymousVisitorId();
     visitorIdRef.current = visitorId;
-    const code = joinRoomCode.trim().toUpperCase();
+    const code = normalizeRoomCode(joinRoomCode);
     if (!supabase || !visitorId) {
       setRoomStatus("Supabase is not connected. Room-code multiplayer is disabled.");
       return;
     }
-    if (code.length < 4) {
-      setRoomStatus("Enter a room code first.");
+    if (!/^\d{4}$/.test(code)) {
+      setRoomStatus("Enter a 4-digit room code first.");
       return;
     }
     const visitorReady = await ensureVisitorRecord(visitorId);
@@ -1297,6 +1323,8 @@ export function ArcadeSoccerGame() {
     active.eventText = "KICKOFF";
     active.eventTimer = 0;
     active.score = { home: 0, away: 0 };
+    active.lastTime = performance.now();
+    active.lastMatchUpdate = active.lastTime;
     active.players.forEach((player) => active.scene.remove(player.mesh));
     active.players = formationPlayers(nextMode, 1);
     active.players.forEach((player) => active.scene.add(player.mesh));
@@ -1509,12 +1537,11 @@ export function ArcadeSoccerGame() {
     };
     window.addEventListener("resize", onResize);
 
-    const runMatchTick = () => {
+    const runMatchTick = (now = performance.now()) => {
       if (runtimeVersionRef.current !== runtimeVersion || sceneRef.current !== runtime) return;
       const active = runtime;
       if (active.state !== "playing") return;
-      const now = performance.now();
-      const dt = Math.min(Math.max((now - active.lastMatchUpdate) / 1000, 0), 0.05);
+      const dt = Math.min(Math.max((now - active.lastMatchUpdate) / 1000, 0), 0.033);
       active.lastMatchUpdate = now;
       if (dt <= 0) return;
       const clockBeforeUpdate = active.gameClock;
@@ -1568,14 +1595,13 @@ export function ArcadeSoccerGame() {
       }
     };
 
-    runtime.matchTick = window.setInterval(runMatchTick, 1000 / 20);
-
     const frame = (time: number) => {
       if (runtimeVersionRef.current !== runtimeVersion || sceneRef.current !== runtime) return;
       const active = runtime;
       const rawFrameMs = Math.max(0, time - active.lastTime);
       const dt = Math.min(rawFrameMs / 1000, 0.033);
       active.lastTime = time;
+      if (active.state === "playing") runMatchTick(time);
       if (active.perfElement) {
         active.perfFrames += 1;
         active.perfFrameTotal += rawFrameMs;
@@ -1875,9 +1901,11 @@ export function ArcadeSoccerGame() {
                 </button>
                 <input
                   className="min-w-0 rounded-md border border-white/15 bg-black/35 px-3 py-2 text-sm uppercase text-white outline-none focus:border-cyan-300"
-                  placeholder="Room code"
+                  placeholder="4-digit code"
+                  inputMode="numeric"
+                  maxLength={4}
                   value={joinRoomCode}
-                  onChange={(event) => setJoinRoomCode(event.target.value.toUpperCase())}
+                  onChange={(event) => setJoinRoomCode(normalizeRoomCode(event.target.value))}
                 />
                 <button className="rounded-md bg-lime-300 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50" disabled={!hasSupabaseConfig} onClick={joinOnlineRoom}>
                   Join
@@ -2031,7 +2059,7 @@ function updateMatch(
     animatePlayer(player, dt);
     updateStuckState(player, input.dir, active, dt);
   });
-  if (active.frameCount % 2 === 0) separatePlayers(active.players);
+  if (active.frameCount % 3 === 0) separatePlayers(active.players);
   handleGoalkeeperActions(active);
   updateAimIndicators(active, keys);
 
@@ -2190,14 +2218,14 @@ function encourageAiFinishing(active: MatchRuntime) {
     .every((player) => player.id === owner.id || (player.pos.z - owner.pos.z) * teamAttackSign <= 1.2);
   const inScoringArea = goalDistance < 32 && Math.abs(owner.pos.x) < GOAL_W * 2.45;
   const mustShoot = furthestForward && goalDistance < 34 && Math.abs(owner.pos.x) < GOAL_W * 2.8;
-  const lateMatchRisk = active.gameClock > 15 * 60 && goalDistance < 50 && Math.abs(owner.pos.x) < FIELD_W / 2 - 5;
+  const lateMatchRisk = active.gameClock > 15 * 60 && goalDistance < 38 && Math.abs(owner.pos.x) < GOAL_W * 2.4;
   if (owner.carryTimer < (inScoringArea ? 0.12 : 0.34)) return;
   const blockers = opponentsBetween(owner, new THREE.Vector3(0, 0, attackingGoalZ(owner.team, active.half)), active.players, inScoringArea ? 7.5 : 5.2);
   if (mustShoot && blockers <= 5) {
     shoot(owner, active, "shot", goalDistance < 23 ? 2.36 : 2.02);
   } else if (inScoringArea && blockers <= 4) {
     shoot(owner, active, chooseAiShotStyle(owner, active, goalDistance, blockers), goalDistance < 24 ? 2.08 : 1.76);
-  } else if (lateMatchRisk && blockers <= 4) {
+  } else if (lateMatchRisk && blockers <= 1) {
     const goalZ = attackingGoalZ(owner.team, active.half);
     const targetX = clamp(-owner.pos.x * 0.24, -GOAL_W / 2 + 1.6, GOAL_W / 2 - 1.6);
     kickTowardPoint(owner, new THREE.Vector3(targetX, BALL_RADIUS, goalZ + Math.sign(goalZ) * (GOAL_DEPTH + 2.2)), active, "shot", undefined, 1.86);
@@ -2328,7 +2356,7 @@ function stopForRestart(active: MatchRuntime, phase: PlayPhase, team: TeamId, sp
 }
 
 function arrangeSetPieceShape(active: MatchRuntime, phase: PlayPhase, team: TeamId, spot: THREE.Vector3) {
-  if (phase === "halftime" || phase === "goal") return;
+  if (phase === "halftime" || phase === "goal" || phase === "kickoff") return;
   const attackSign = Math.sign(attackingGoalZ(team, active.half));
   const attackingGoal = attackingGoalZ(team, active.half);
   const opponentGoalSide = Math.sign(attackingGoal);
@@ -3182,11 +3210,11 @@ function aiInput(player: PlayerBody, active: MatchRuntime) {
   const opponentHasBall = owner?.team === opponent(player.team);
   const flatBall = new THREE.Vector3(active.ballPos.x, 0, active.ballPos.z);
   const distanceToBall = flatBall.distanceTo(player.pos);
-  const pressureIds = pressureFieldPlayers(active.players, player.team, active.ballPos, opponentHasBall ? 2 : active.ballOwnerId ? 1 : 2);
+  const pressureIds = teamHasBall ? [] : pressureFieldPlayers(active.players, player.team, active.ballPos, 1);
   const isPressing = pressureIds.includes(player.id);
   const closestOpponent = nearestOpponentTo(player, active.players);
   const committedReceiver = active.intendedReceiverId === player.id && active.ballState === "kicked";
-  const committedCollector = !owner && active.ballState !== "possessed" && (committedReceiver || isPressing && distanceToBall < 20 || distanceToBall < 6.5);
+  const committedCollector = !owner && active.ballState !== "possessed" && (committedReceiver || (isPressing && distanceToBall < 22));
   if (player.role !== "keeper" && committedCollector) {
     const ballLead = new THREE.Vector3(active.ballVel.x, 0, active.ballVel.z).multiplyScalar(committedReceiver ? 0.2 : 0.1);
     const collectTarget = flatBall.clone().add(ballLead);
@@ -3197,7 +3225,7 @@ function aiInput(player: PlayerBody, active: MatchRuntime) {
   }
   if (player.role !== "keeper" && player.line === "defender") {
     const ballNearOwnBox = Math.abs(active.ballPos.z - ownZ) < 30;
-    if (!owner && ballNearOwnBox && distanceToBall < 10) {
+    if (!owner && ballNearOwnBox && isPressing && distanceToBall < 10) {
       const directBall = flatBall.sub(player.pos);
       return { dir: directBall.lengthSq() > 0.05 ? directBall.normalize() : directBall.set(0, 0, 0), sprint: distanceToBall > 3.4, speedScale: 1 };
     }
@@ -3304,7 +3332,7 @@ function aiInput(player: PlayerBody, active: MatchRuntime) {
       const markTarget = dangerousMarkTarget(player, active);
       if (markTarget) target.lerp(markTarget, 0.5);
     }
-    if (!opponentHasBall && !active.ballOwnerId && distanceToBall < (player.line === "forward" ? 20 : 16)) {
+    if (!opponentHasBall && !active.ballOwnerId && isPressing && distanceToBall < (player.line === "forward" ? 20 : 16)) {
       target.lerp(flatBall, 0.34);
     }
     if (opponentHasBall && closestOpponent && player.line !== "forward") {
@@ -3332,7 +3360,8 @@ function aiInput(player: PlayerBody, active: MatchRuntime) {
     const goalDistance = Math.abs(attackingZ - player.pos.z);
     const pressureCount = opponentPressure(player, active.players, player.role === "keeper" ? 7 : 5.4);
     const pressured = pressureCount > 0;
-    if (player.role === "keeper" && player.carryTimer > 0.5 && player.decisionCooldown <= 0) {
+    const keeperHoldTime = pressureCount > 0 ? 0.86 : 1.25;
+    if (player.role === "keeper" && player.carryTimer > keeperHoldTime && player.decisionCooldown <= 0) {
       const acted = clearBall(player, active);
       player.decisionCooldown = acted ? 0.95 : 0.25;
       if (acted) return { dir: new THREE.Vector3(), sprint: false };
@@ -3359,19 +3388,19 @@ function aiInput(player: PlayerBody, active: MatchRuntime) {
       && Math.abs(player.pos.x) < GOAL_W * 2.6
       && opponentPressure(player, active.players, 4.8) < 6;
     const shootingLane = player.role !== "keeper"
-      && goalDistance < 56
+      && goalDistance < 40
       && Math.abs(player.pos.x) < GOAL_W * 2.35
       && blockers <= (goalDistance < 24 ? 3 : 2)
       && opponentPressure(player, active.players, 4.4) < 5;
     const opponentKeeper = active.players.find((item) => item.team === opponent(player.team) && item.role === "keeper");
     const keeperPoorPosition = Boolean(opponentKeeper && Math.abs(opponentKeeper.pos.x - player.pos.x * 0.18) > 2.7);
     const midRangeShot = player.role !== "keeper"
-      && goalDistance >= 24
-      && goalDistance < 48
+      && goalDistance >= 22
+      && goalDistance < 38
       && Math.abs(player.pos.x) < GOAL_W * 2.45
-      && blockers <= 2
-      && opponentPressure(player, active.players, 5.4) < 4
-      && (keeperPoorPosition || nearestOpponentDistance(player, active.players) > 4.7 || player.line === "forward");
+      && blockers <= 1
+      && opponentPressure(player, active.players, 5.4) < 3
+      && (keeperPoorPosition || nearestOpponentDistance(player, active.players) > 7.2 || (player.line === "forward" && goalDistance < 32));
     const closeForwardThreat = player.role !== "keeper"
       && (player.line === "forward" || furthestForward)
       && goalDistance < 28
@@ -3385,18 +3414,20 @@ function aiInput(player: PlayerBody, active: MatchRuntime) {
       if (player.line === "defender" && pressured && ownGoalDistance < 24) {
         acted = clearBall(player, active);
       }
+      if (!acted && player.role !== "keeper" && goalDistance > 42 && player.carryTimer > 0.44) {
+        acted = passOpportunity
+          ? performPass(player, active, passTarget && (passTarget.pos.z - player.pos.z) * attackSign > 8 ? "through" : "short")
+          : performBackPass(player, active);
+        if (!acted && canDribbleIntoSpace(player, active)) {
+          player.decisionCooldown = 0.34;
+          return { dir: dribbleSpaceDirection(player, active), sprint: true, speedScale: 0.96 };
+        }
+      }
       if (!acted && closeShotLane && player.carryTimer > 0.22) {
         acted = shoot(player, active, chooseAiShotStyle(player, active, goalDistance, blockers), goalDistance < 18 ? 2.5 : 2.18);
       }
       if (!acted && fullPowerShootingChance && player.carryTimer > 0.22) {
         acted = shoot(player, active, "shot", goalDistance < 22 ? 2.38 : 2.05);
-      }
-      if (!acted && furthestForward && goalDistance > 42 && blockers > 1 && player.carryTimer > 0.4) {
-        acted = performBackPass(player, active);
-        if (!acted && canDribbleIntoSpace(player, active)) {
-          player.decisionCooldown = 0.34;
-          return { dir: dribbleSpaceDirection(player, active), sprint: true, speedScale: 0.96 };
-        }
       }
       if (!acted && closeForwardThreat && blockers >= 3 && player.carryTimer > 0.36) {
         acted = beginAiSkillMove(player, active, goalDistance, pressured || blockers >= 3, blockers);
@@ -3692,7 +3723,7 @@ function activeShapeNudge() {
 
 function pressureFieldPlayers(players: PlayerBody[], team: TeamId, ball: THREE.Vector3, count: number) {
   return players
-    .filter((player) => player.team === team && player.role !== "keeper")
+    .filter((player) => player.team === team && player.role !== "keeper" && !player.sentOff)
     .sort((a, b) => a.pos.distanceTo(ball) - b.pos.distanceTo(ball))
     .slice(0, count)
     .map((player) => player.id);
