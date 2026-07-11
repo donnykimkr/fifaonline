@@ -990,11 +990,17 @@ function syncRuntimeDiagnostics(active: MatchRuntime) {
     .map((keeper) => {
       const toBall = active.ballPos.clone().setY(0).sub(keeper.pos);
       const trackingDot = toBall.lengthSq() > 0.05 ? facingDirection(keeper).dot(toBall.normalize()) : 1;
+      const ownZ = teamGoalZ(keeper.team, active.half);
+      const timeToGoal = Math.abs(active.ballVel.z) > 0.12 ? (ownZ - active.ballPos.z) / active.ballVel.z : 0;
+      const predictedX = timeToGoal > 0
+        ? active.ballPos.x + active.ballVel.x * clamp(timeToGoal, 0, 1.18)
+        : active.ballPos.x;
       return {
         id: keeper.id,
         trackingDot: Number(trackingDot.toFixed(3)),
         diveSide: keeper.diveSide,
-        expectedSide: Math.sign(active.ballPos.x - keeper.pos.x || active.ballVel.x || 0),
+        expectedSide: Math.sign(predictedX - keeper.pos.x || active.ballVel.x || 0),
+        predictedX: Number(predictedX.toFixed(2)),
       };
     }));
 }
