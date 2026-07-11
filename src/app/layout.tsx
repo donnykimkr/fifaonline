@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import type { ReactNode } from "react";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
+import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Fifa Online",
-  description: "A 3D arcade soccer browser game with AI teammates, anonymous analytics, and room-code multiplayer.",
+  title: "Futbol",
+  description: "A 3D arcade soccer browser game with AI teammates and anonymous gameplay analytics.",
   icons: {
     icon: "/favicon.svg",
   },
@@ -30,6 +31,7 @@ export default function RootLayout({
       <body>
         {children}
         <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );
