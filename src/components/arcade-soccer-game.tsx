@@ -3341,7 +3341,7 @@ function updateMatch(
       if (facingTarget && (player.line === "defender" || player.pos.distanceTo(facingTarget.pos) < 20)) {
         const faceDirection = facingTarget.pos.clone().sub(player.pos).setY(0);
         if (faceDirection.lengthSq() > 0.05) {
-          setPlayerHeading(player, headingFromDirection(faceDirection), dt, player.line === "defender" ? 9.5 : 7.4);
+          setPlayerHeading(player, headingFromDirection(faceDirection), dt, player.line === "defender" ? 13.5 : 8.5);
         }
       }
     }
@@ -6844,6 +6844,13 @@ function updateDefensiveTeamPlan(active: MatchRuntime, dt: number) {
   };
   const dangerousReceivers = [...possibleReceivers].sort((a, b) => receiverDanger(a) - receiverDanger(b));
   const unassignedReceivers = new Set(possibleReceivers.map((player) => player.id));
+  if (cover) {
+    const coverReceiver = dangerousReceivers.find((candidate) => unassignedReceivers.has(candidate.id)) ?? null;
+    if (coverReceiver) {
+      markedOpponentIds.set(cover.id, coverReceiver.id);
+      unassignedReceivers.delete(coverReceiver.id);
+    }
+  }
   const shapePlayers = defenders
     .filter((player) => player.id !== primaryPresserId && player.id !== secondaryCoverId)
     .sort((a, b) => {
@@ -7041,7 +7048,7 @@ function enforceDefensiveRuntimeGuard(active: MatchRuntime, dt: number) {
       player.aiInputCache.speedScale = 0.92;
       player.aiInputTimer = Math.max(player.aiInputTimer, 0.08);
       const faceCarrier = carrier.pos.clone().sub(player.pos).setY(0);
-      if (faceCarrier.lengthSq() > 0.05) setPlayerHeading(player, headingFromDirection(faceCarrier), dt, 9.5);
+      if (faceCarrier.lengthSq() > 0.05) setPlayerHeading(player, headingFromDirection(faceCarrier), dt, 13.5);
       if (distance < 6.5) {
         player.pos.addScaledVector(escapeDirection, Math.min(0.42, (6.5 - distance) * 0.12));
         clampPlayer(player);
