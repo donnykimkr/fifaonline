@@ -7837,7 +7837,9 @@ function updateDefensiveTeamPlan(active: MatchRuntime, dt: number) {
       carrier = previousCarrier;
     }
   }
-  if (active.phase !== "open" || !carrier || carrier.role === "keeper") {
+  // A keeper holding the ball is still an active transition: preserve marking and
+  // screen the distribution lanes instead of briefly dropping every assignment.
+  if (active.phase !== "open" || !carrier) {
     active.defensivePlan = null;
     active.defensivePlanTimer = 0;
     active.defensivePlanGraceTimer = 0;
