@@ -8038,6 +8038,8 @@ function updateDefensiveTeamPlan(active: MatchRuntime, dt: number) {
     .forEach((threat) => assignMarker(threat));
 
   const laneThreats = threats.filter((threat) => threat.id !== carrier.id);
+  const alreadyCoveredThreats = new Set(markedOpponentIds.values());
+  const unclaimedZoneThreats = laneThreats.filter((threat) => !alreadyCoveredThreats.has(threat.id));
   const occupiedTargets = [...targets.values()].map((target) => target.clone());
   const remainingPlayers = defenders
     .filter((player) => !assignedDefenderIds.has(player.id))
@@ -8048,12 +8050,14 @@ function updateDefensiveTeamPlan(active: MatchRuntime, dt: number) {
 
   remainingPlayers.forEach((player, index) => {
     const base = baseDefensiveShapeTarget(player, active, carrier, dangerPhase);
+    const claimedZoneThreat = unclaimedZoneThreats.shift() ?? null;
+    const responsibleThreat = claimedZoneThreat ?? laneThreats[index % Math.max(1, laneThreats.length)] ?? deepestThreat;
+    if (claimedZoneThreat) markedOpponentIds.set(player.id, claimedZoneThreat.id);
     let role: DefensiveTacticalRole;
     let target = base.clone();
     if (player.line === "midfielder") {
-      const receiver = laneThreats[index % Math.max(1, laneThreats.length)] ?? deepestThreat;
-      const lanePoint = carrier.pos.clone().lerp(receiver.pos, 0.58).setY(0);
-      const laneGoalSide = ownGoal.clone().sub(receiver.pos).setY(0);
+      const lanePoint = carrier.pos.clone().lerp(responsibleThreat.pos, 0.58).setY(0);
+      const laneGoalSide = ownGoal.clone().sub(responsibleThreat.pos).setY(0);
       if (laneGoalSide.lengthSq() > 0.05) lanePoint.add(laneGoalSide.normalize().multiplyScalar(1.6));
       target = lanePoint.lerp(base, dangerPhase === "NORMAL_BLOCK" ? 0.28 : 0.16);
       role = index === 0 ? "midfield-screen" : "block-lane";
@@ -8072,8 +8076,7 @@ function updateDefensiveTeamPlan(active: MatchRuntime, dt: number) {
       }
     } else {
       role = "block-lane";
-      const receiver = laneThreats[index % Math.max(1, laneThreats.length)] ?? deepestThreat;
-      target = carrier.pos.clone().lerp(receiver.pos, 0.42).lerp(base, 0.34).setY(0);
+      target = carrier.pos.clone().lerp(responsibleThreat.pos, 0.42).lerp(base, 0.34).setY(0);
     }
 
     const minimumCarrierGap = dangerPhase === "EMERGENCY_GOAL_DEFENSE"
