@@ -61,6 +61,7 @@ type PlayerBody = {
   decisionCooldown: number;
   carryTimer: number;
   stuckTimer: number;
+  contactLockTimer: number;
   fallbackTimer: number;
   fallbackTarget: THREE.Vector3;
   lastPos: THREE.Vector3;
@@ -1658,6 +1659,7 @@ function createPlayer(id: string, team: TeamId, role: PlayerRole, line: PlayerLi
     decisionCooldown: number * 0.035,
     carryTimer: 0,
     stuckTimer: 0,
+    contactLockTimer: 0,
     fallbackTimer: 0,
     fallbackTarget: new THREE.Vector3(x, 0, z),
     lastPos: new THREE.Vector3(x, 0, z),
@@ -2471,6 +2473,17 @@ export function ArcadeSoccerGame() {
     const manualDefenseTest = tacticalTest.includes("manual-defense");
     const aimChargeTest = new URLSearchParams(window.location.search).has("aimChargeTest");
     let tacticalTestApplied = false;
+    const requestedHeaderTests = clamp(Number(new URLSearchParams(window.location.search).get("headerTest") ?? "0"), 0, 15);
+    let remainingHeaderTests = requestedHeaderTests;
+    let nextHeaderTestAt = performance.now() + 1200;
+    runtime.renderer.domElement.dataset.headerTestsRequested = String(requestedHeaderTests);
+    runtime.renderer.domElement.dataset.headerExpectedContacts = "0";
+    const requestedContactTests = clamp(Number(new URLSearchParams(window.location.search).get("contactTest") ?? "0"), 0, 15);
+    let remainingContactTests = requestedContactTests;
+    let nextContactTestAt = performance.now() + 1200;
+    let pendingContactCheck: { aId: string; bId: string; at: number } | null = null;
+    runtime.renderer.domElement.dataset.contactTestsRequested = String(requestedContactTests);
+    runtime.renderer.domElement.dataset.contactTestsPassed = "0";
 
     let resizeFrame: number | null = null;
     const onResize = () => {
@@ -2598,6 +2611,66 @@ export function ArcadeSoccerGame() {
             }
             active.renderer.domElement.dataset.tacticalTest = tacticalTest;
             tacticalTestApplied = true;
+          }
+        }
+        if (pendingContactCheck && now >= pendingContactCheck.at) {
+          const a = active.players.find((player) => player.id === pendingContactCheck?.aId) ?? null;
+          const b = active.players.find((player) => player.id === pendingContactCheck?.bId) ?? null;
+          if (a && b && a.pos.distanceTo(b.pos) > PERSONAL_SPACE * 0.72 && Number.isFinite(a.pos.x + a.pos.z + b.pos.x + b.pos.z)) {
+            active.renderer.domElement.dataset.contactTestsPassed = String(Number(active.renderer.domElement.dataset.contactTestsPassed ?? "0") + 1);
+          }
+          pendingContactCheck = null;
+        }
+        if (remainingContactTests > 0 && !pendingContactCheck && active.phase === "open" && now >= nextContactTestAt) {
+          const a = active.players.find((player) => player.team === "home" && player.role !== "keeper" && !player.sentOff) ?? null;
+          const b = active.players.find((player) => player.team === "away" && player.role !== "keeper" && !player.sentOff) ?? null;
+          if (a && b) {
+            const testIndex = requestedContactTests - remainingContactTests;
+            const origin = new THREE.Vector3((testIndex % 3 - 1) * 8, 0, (testIndex % 5 - 2) * 5);
+            a.pos.copy(origin);
+            b.pos.copy(origin).add(new THREE.Vector3(testIndex % 2 === 0 ? 0 : 0.05, 0, 0));
+            a.vel.set(0, 0, 0);
+            b.vel.set(0, 0, 0);
+            a.contactLockTimer = 0;
+            b.contactLockTimer = 0;
+            a.mesh.position.copy(a.pos);
+            b.mesh.position.copy(b.pos);
+            pendingContactCheck = { aId: a.id, bId: b.id, at: now + 520 };
+            remainingContactTests -= 1;
+            nextContactTestAt = now + 660;
+            active.renderer.domElement.dataset.contactTestsRemaining = String(remainingContactTests);
+          }
+        }
+        if (remainingHeaderTests > 0 && active.phase === "open" && now >= nextHeaderTestAt) {
+          const headerPlayer = active.players.find((player) => player.team === "home" && player.line === "forward" && !player.sentOff) ?? null;
+          if (headerPlayer) {
+            const testIndex = requestedHeaderTests - remainingHeaderTests;
+            const shouldContact = testIndex % 3 !== 2;
+            headerPlayer.pos.set((testIndex % 5 - 2) * 5, 0, -20 + (testIndex % 3) * 4);
+            headerPlayer.vel.set(testIndex % 2 === 0 ? 1.8 : 0, 0, -2.2);
+            headerPlayer.heading = headingFromDirection(new THREE.Vector3(0, 0, -1));
+            headerPlayer.mesh.rotation.y = headerPlayer.heading;
+            headerPlayer.mesh.position.copy(headerPlayer.pos);
+            headerPlayer.mesh.updateMatrixWorld(true);
+            const head = headerPlayer.mesh.getObjectByName("head");
+            const headPoint = head?.getWorldPosition(new THREE.Vector3()) ?? headerPlayer.pos.clone().setY(2.3);
+            const lateralMiss = new THREE.Vector3(1.15, testIndex % 2 === 0 ? 0 : 0.85, -0.42);
+            const velocity = new THREE.Vector3(0, -1.8, 15.5);
+            releasePossession(active, "kicked");
+            active.ballPos.copy(headPoint).add(shouldContact ? new THREE.Vector3(0, 0.02, -0.42) : lateralMiss);
+            active.ballVel.copy(velocity);
+            active.ballCurve.set(0, 0, 0);
+            active.intendedReceiverId = shouldContact ? headerPlayer.id : null;
+            active.ballIgnorePlayerId = null;
+            active.ballIgnoreTimer = 0;
+            headerPlayer.headerTimer = 0;
+            headerPlayer.ballContactCooldown = 0;
+            if (shouldContact) {
+              active.renderer.domElement.dataset.headerExpectedContacts = String(Number(active.renderer.domElement.dataset.headerExpectedContacts ?? "0") + 1);
+            }
+            remainingHeaderTests -= 1;
+            nextHeaderTestAt = now + 720;
+            active.renderer.domElement.dataset.headerTestsRemaining = String(remainingHeaderTests);
           }
         }
         if (
@@ -3490,7 +3563,7 @@ function updateMatch(
   if (!outOfPlayPending) {
     handleGoalkeeperActions(active);
     handleFieldShotBlocks(active);
-    tryAerialHeaderDuel(active);
+    tryAerialHeaderDuel(active, dt);
   }
   updateAimIndicators(active, keys);
 
@@ -3617,7 +3690,7 @@ function updateMatch(
 
     let controlResolved = false;
     if (controller) {
-      controlResolved = tryHeader(controller.player, active) || takePossession(controller.player, active);
+      controlResolved = tryHeader(controller.player, active, dt) || takePossession(controller.player, active);
     }
 
     if (
@@ -4744,12 +4817,54 @@ function chooseSetPieceCrossTarget(actor: PlayerBody, active: MatchRuntime, phas
   return { receiver, target };
 }
 
-function tryHeader(player: PlayerBody, active: MatchRuntime) {
+type HeaderContact = {
+  distance: number;
+  headPoint: THREE.Vector3;
+};
+
+function sweptPointDistance(point: THREE.Vector3, from: THREE.Vector3, to: THREE.Vector3) {
+  const segment = to.clone().sub(from);
+  const lengthSq = segment.lengthSq();
+  if (lengthSq < 0.000001) return { distance: point.distanceTo(to), t: 1 };
+  const t = clamp(point.clone().sub(from).dot(segment) / lengthSq, 0, 1);
+  const closest = from.clone().addScaledVector(segment, t);
+  return { distance: point.distanceTo(closest), t };
+}
+
+function realHeaderContact(player: PlayerBody, active: MatchRuntime, dt: number): HeaderContact | null {
+  if (player.headerTimer > 0 || player.ballContactCooldown > 0 || active.ballIgnorePlayerId === player.id) return null;
+  const head = player.mesh.getObjectByName("head");
+  if (!head) return null;
+  player.mesh.updateMatrixWorld(true);
+  const headPoint = head.getWorldPosition(new THREE.Vector3())
+    .addScaledVector(facingDirection(player), 0.19);
+  const travelDt = clamp(dt, 1 / 240, 0.05);
+  const previousBall = active.ballPos.clone().addScaledVector(active.ballVel, -travelDt);
+  const contact = sweptPointDistance(headPoint, previousBall, active.ballPos);
+  const contactRadius = BALL_RADIUS + 0.29;
+  if (contact.distance > contactRadius) return null;
+  const ballToHead = headPoint.clone().sub(previousBall);
+  const towardHead = ballToHead.lengthSq() < 0.0001
+    || active.ballVel.clone().normalize().dot(ballToHead.normalize()) > 0.1
+    || active.ballPos.distanceTo(headPoint) < contactRadius * 0.82;
+  if (!towardHead) return null;
+  const horizontalBall = active.ballPos.clone().setY(player.pos.y);
+  const lookToBall = horizontalBall.sub(player.pos);
+  if (lookToBall.lengthSq() > 0.04 && facingDirection(player).dot(lookToBall.normalize()) < -0.18) return null;
+  return { distance: contact.distance, headPoint };
+}
+
+function recordHeaderContact(active: MatchRuntime, contact: HeaderContact) {
+  const element = active.renderer.domElement;
+  element.dataset.headerContacts = String(Number(element.dataset.headerContacts ?? "0") + 1);
+  element.dataset.lastHeaderDistance = contact.distance.toFixed(3);
+}
+
+function tryHeader(player: PlayerBody, active: MatchRuntime, dt = 1 / 60) {
   if (active.phase !== "open" || active.ballOwnerId || active.intendedReceiverId !== player.id) return false;
   if (player.role === "keeper" || player.actionCooldown > 0 || player.recoveryTimer > 0) return false;
-  if (active.ballPos.y < 1.18 || active.ballPos.y > 2.95 || Math.abs(active.ballVel.y) > 12) return false;
-  const flatBall = new THREE.Vector3(active.ballPos.x, 0, active.ballPos.z);
-  if (player.pos.distanceTo(flatBall) > CONTROL_TOUCH_DISTANCE + 1.35) return false;
+  const contact = realHeaderContact(player, active, dt);
+  if (!contact) return false;
   const goalZ = attackingGoalZ(player.team, active.half);
   if (Math.abs(goalZ - player.pos.z) > 33) return false;
   const target = quickKickPoint(player, active);
@@ -4768,15 +4883,16 @@ function tryHeader(player: PlayerBody, active: MatchRuntime) {
   player.kickTimer = 0.24;
   player.actionCooldown = 0.32;
   player.recoveryTimer = Math.max(player.recoveryTimer, 0.12);
+  player.headerTimer = 0.42;
+  player.ballContactCooldown = 0.3;
+  recordHeaderContact(active, contact);
   playKickSound(active, 1.1);
   return true;
 }
 
-function tryAerialHeaderDuel(active: MatchRuntime) {
+function tryAerialHeaderDuel(active: MatchRuntime, dt: number) {
   if (active.phase !== "open" || active.ballOwnerId || active.ballState !== "kicked") return false;
-  if (active.ballPos.y < 1.35 || active.ballPos.y > 3.65 || Math.abs(active.ballVel.y) > 12.8) return false;
-  const horizontalVel = new THREE.Vector3(active.ballVel.x, 0, active.ballVel.z);
-  const contestPoint = active.ballPos.clone().setY(0).add(horizontalVel.multiplyScalar(active.ballVel.y > 0 ? 0.04 : 0.1));
+  if (active.ballPos.y < 1.45 || active.ballPos.y > 3.35 || Math.abs(active.ballVel.y) > 13.5) return false;
   const candidates = active.players
     .filter((player) => (
       player.role !== "keeper"
@@ -4784,21 +4900,20 @@ function tryAerialHeaderDuel(active: MatchRuntime) {
       && player.actionCooldown <= 0
       && player.recoveryTimer <= 0.08
       && player.headerTimer <= 0
-      && player.pos.distanceTo(contestPoint) < 4.4
     ))
-    .map((player) => {
-      const distance = player.pos.distanceTo(contestPoint);
+    .map((player) => ({ player, contact: realHeaderContact(player, active, dt) }))
+    .filter((candidate): candidate is { player: PlayerBody; contact: HeaderContact } => Boolean(candidate.contact))
+    .map(({ player, contact }) => {
       const intendedBonus = active.intendedReceiverId === player.id ? 4.8 : 0;
       const timing = active.ballVel.y <= 0 ? 2.2 : 0.7;
       const facing = facingDirection(player).dot(active.ballPos.clone().setY(0).sub(player.pos).normalize());
       const lineBonus = player.line === "forward" ? 1.4 : player.line === "defender" ? 1.0 : 0.7;
-      return { player, score: (4.6 - distance) * 3.1 + intendedBonus + timing + facing * 1.2 + lineBonus, distance };
+      return { player, contact, score: (0.72 - contact.distance) * 8 + intendedBonus + timing + facing * 1.2 + lineBonus };
     })
     .sort((a, b) => b.score - a.score);
-  const winner = candidates[0]?.player;
-  if (!winner || candidates[0].score < 7.2) return false;
-  const nearbyOpponent = candidates.some(({ player, distance }) => player.team !== winner.team && distance < 4.8);
-  if (!nearbyOpponent && active.intendedReceiverId !== winner.id && active.ballVel.y > -0.5) return false;
+  const winnerEntry = candidates[0];
+  const winner = winnerEntry?.player;
+  if (!winner || !winnerEntry || winnerEntry.score < 2.4) return false;
 
   const ownGoalDistance = Math.abs(teamGoalZ(winner.team, active.half) - winner.pos.z);
   const attackingGoalDistance = Math.abs(attackingGoalZ(winner.team, active.half) - winner.pos.z);
@@ -4832,12 +4947,15 @@ function tryAerialHeaderDuel(active: MatchRuntime) {
   winner.headerTimer = 0.42;
   winner.actionCooldown = 0.34;
   winner.recoveryTimer = Math.max(winner.recoveryTimer, 0.1);
+  winner.ballContactCooldown = 0.32;
+  recordHeaderContact(active, winnerEntry.contact);
   setPlayerHeading(winner, headingFromDirection(direction), 1 / 60, 12);
   playKickSound(active, 0.92);
   return true;
 }
 
 function separatePlayers(players: PlayerBody[], dt: number) {
+  const elapsed = dt * 3;
   for (let i = 0; i < players.length; i += 1) {
     for (let j = i + 1; j < players.length; j += 1) {
       const a = players[i];
@@ -4845,22 +4963,49 @@ function separatePlayers(players: PlayerBody[], dt: number) {
       if (Math.abs(a.pos.x - b.pos.x) > PERSONAL_SPACE || Math.abs(a.pos.z - b.pos.z) > PERSONAL_SPACE) continue;
       const delta = new THREE.Vector3(a.pos.x - b.pos.x, 0, a.pos.z - b.pos.z);
       const distance = delta.length();
-      if (distance > 0.001 && distance < PERSONAL_SPACE) {
-        const push = delta.multiplyScalar((PERSONAL_SPACE - distance) / distance * 0.5);
-        const pushSpeed = dt > 0 ? Math.min(push.length() / dt, 5.8) : 0;
-        if (a.role !== "keeper") {
-          a.pos.add(push);
-          a.animationSpeed = Math.max(a.animationSpeed, pushSpeed);
-        }
-        if (b.role !== "keeper") {
-          b.pos.sub(push);
-          b.animationSpeed = Math.max(b.animationSpeed, pushSpeed);
-        }
-        clampPlayer(a);
-        clampPlayer(b);
-        a.mesh.position.copy(a.pos);
-        b.mesh.position.copy(b.pos);
+      if (distance >= PERSONAL_SPACE) continue;
+      const normal = distance > 0.001
+        ? delta.multiplyScalar(1 / distance)
+        : (() => {
+            const relativeVelocity = a.vel.clone().sub(b.vel).setY(0);
+            if (relativeVelocity.lengthSq() > 0.02) return relativeVelocity.normalize();
+            const deterministicSide = a.id < b.id ? 1 : -1;
+            return new THREE.Vector3(deterministicSide, 0, deterministicSide * 0.23).normalize();
+          })();
+      const relativeVelocity = a.vel.clone().sub(b.vel).setY(0);
+      const closingSpeed = relativeVelocity.dot(normal);
+      if (closingSpeed < 0) {
+        a.vel.addScaledVector(normal, -closingSpeed * 0.5);
+        b.vel.addScaledVector(normal, closingSpeed * 0.5);
       }
+      const deepOverlap = distance < PERSONAL_SPACE * 0.58;
+      const nearLocked = deepOverlap && relativeVelocity.length() < 0.75;
+      a.contactLockTimer = nearLocked ? a.contactLockTimer + elapsed : Math.max(0, a.contactLockTimer - elapsed * 1.8);
+      b.contactLockTimer = nearLocked ? b.contactLockTimer + elapsed : Math.max(0, b.contactLockTimer - elapsed * 1.8);
+      const failsafe = a.contactLockTimer > 0.42 || b.contactLockTimer > 0.42;
+      const correction = Math.min(failsafe ? 0.46 : 0.28, Math.max(0.03, (PERSONAL_SPACE - distance) * 0.5));
+      const tangent = new THREE.Vector3(-normal.z, 0, normal.x).multiplyScalar((a.id < b.id ? 1 : -1) * (failsafe ? 0.16 : 0));
+      const aWeight = a.role === "keeper" ? 0.35 : 1;
+      const bWeight = b.role === "keeper" ? 0.35 : 1;
+      a.pos.addScaledVector(normal, correction * aWeight).addScaledVector(tangent, aWeight);
+      b.pos.addScaledVector(normal, -correction * bWeight).addScaledVector(tangent, -bWeight);
+      if (failsafe) {
+        a.tackleTimer = 0;
+        b.tackleTimer = 0;
+        a.recoveryTimer = Math.min(a.recoveryTimer, 0.08);
+        b.recoveryTimer = Math.min(b.recoveryTimer, 0.08);
+        a.decisionCooldown = 0;
+        b.decisionCooldown = 0;
+        a.contactLockTimer = 0;
+        b.contactLockTimer = 0;
+      }
+      const pushSpeed = dt > 0 ? Math.min(correction / dt, 5.8) : 0;
+      a.animationSpeed = Math.max(a.animationSpeed, pushSpeed);
+      b.animationSpeed = Math.max(b.animationSpeed, pushSpeed);
+      clampPlayer(a);
+      clampPlayer(b);
+      a.mesh.position.copy(a.pos);
+      b.mesh.position.copy(b.pos);
     }
   }
 }
@@ -6882,6 +7027,56 @@ function addFormationMotion(player: PlayerBody, target: THREE.Vector3, active: M
   target.z += Math.cos(beat * 0.72) * depth * 0.35 + phaseDepth;
 }
 
+function finalThirdSupportTarget(player: PlayerBody, owner: PlayerBody, active: MatchRuntime) {
+  if (player.id === owner.id || player.role === "keeper") return null;
+  const goalZ = attackingGoalZ(player.team, active.half);
+  const attackSign = Math.sign(goalZ) || 1;
+  const goalDistance = Math.abs(goalZ - owner.pos.z);
+  if (goalDistance > 58) return null;
+  const target = player.pos.clone().setY(0);
+  const slotSide = player.formationSlot.startsWith("L")
+    ? -1
+    : player.formationSlot.startsWith("R")
+      ? 1
+      : Math.sign(player.home.x || (player.number % 2 === 0 ? 1 : -1));
+  if (player.line === "midfielder") {
+    const wide = ["LM", "RM", "LWB", "RWB", "LAM", "RAM"].includes(player.formationSlot);
+    if (wide) {
+      target.x = slotSide * (FIELD_W / 2 - 13);
+      target.z = goalZ - attackSign * (Math.abs(owner.pos.x) > FIELD_W * 0.2 ? 25 : 30);
+      return target;
+    }
+    const centralMidfielders = active.players
+      .filter((candidate) => candidate.team === player.team && candidate.line === "midfielder" && !candidate.sentOff
+        && !["LM", "RM", "LWB", "RWB", "LAM", "RAM"].includes(candidate.formationSlot))
+      .sort((a, b) => a.number - b.number);
+    const index = Math.max(0, centralMidfielders.findIndex((candidate) => candidate.id === player.id));
+    if (index % 3 === 0) {
+      target.x = clamp(owner.pos.x * 0.42 + slotSide * 8, -GOAL_W * 1.45, GOAL_W * 1.45);
+      target.z = goalZ - attackSign * 23;
+    } else if (index % 3 === 1) {
+      target.x = clamp(owner.pos.x * 0.22 + slotSide * 5, -GOAL_W * 1.8, GOAL_W * 1.8);
+      target.z = goalZ - attackSign * 39;
+    } else {
+      target.x = clamp(-Math.sign(owner.pos.x || slotSide) * 18, -FIELD_W / 2 + 11, FIELD_W / 2 - 11);
+      target.z = goalZ - attackSign * 30;
+    }
+    return target;
+  }
+  if (player.line === "defender") {
+    const fullback = ["LB", "RB", "LWB", "RWB"].includes(player.formationSlot);
+    if (fullback) {
+      target.x = slotSide * (FIELD_W / 2 - 12);
+      target.z = goalZ - attackSign * 37;
+    } else {
+      target.x = slotSide * (player.number % 2 === 0 ? 10 : 15);
+      target.z = clamp(owner.pos.z - attackSign * (player.number % 2 === 0 ? 25 : 32), -FIELD_L / 2 + 10, FIELD_L / 2 - 10);
+    }
+    return target;
+  }
+  return null;
+}
+
 function addPossessionSpacing(player: PlayerBody, target: THREE.Vector3, active: MatchRuntime, teamHasBall: boolean) {
   const owner = ballOwner(active);
   if (!teamHasBall || !owner || owner.id === player.id || player.role === "keeper") return;
@@ -6906,7 +7101,13 @@ function addPossessionSpacing(player: PlayerBody, target: THREE.Vector3, active:
     const supportDepth = fullback && owner.line === "defender" ? 7 : fullback ? -8 : player.number % 2 === 0 ? -14 : -21;
     supportTarget.z = clamp(ownerFlat.z + attackSign * supportDepth, -FIELD_L / 2 + 9, FIELD_L / 2 - 9);
   }
-  if (active.intendedReceiverId !== player.id) target.lerp(supportTarget, player.line === "forward" ? 0.48 : player.line === "midfielder" ? 0.6 : 0.56);
+  if (active.intendedReceiverId !== player.id) {
+    target.lerp(supportTarget, player.line === "forward" ? 0.48 : player.line === "midfielder" ? 0.6 : 0.56);
+    const finalThirdTarget = finalThirdSupportTarget(player, owner, active);
+    if (finalThirdTarget) {
+      target.lerp(finalThirdTarget, player.line === "midfielder" ? 0.76 : player.line === "defender" ? 0.68 : 0.48);
+    }
+  }
   const ownerGap = target.distanceTo(owner.pos);
   if (ownerGap < minGap) {
     const lane = target.clone().sub(owner.pos).setY(0);
@@ -7041,11 +7242,12 @@ function updateDefensiveTeamPlan(active: MatchRuntime, dt: number) {
   const dangerDepth = Math.min(distanceFromOwnGoal, deepestThreatDepth);
   const defenderDepthCeiling = clamp(dangerDepth - 2.4, 5.8, 34);
   const midfieldDepthCeiling = clamp(defenderDepthCeiling + (dangerDepth < 28 ? 9.5 : 13.5), 14, 50);
-  const previous = active.defensivePlan?.defendingTeam === defendingTeam && active.defensivePlan.carrierId === carrier.id
+  const previousPlan = active.defensivePlan?.defendingTeam === defendingTeam
     ? active.defensivePlan
     : null;
-  const previousPrimary = previous?.primaryPresserId
-    ? pressureCandidates.find(({ player }) => player.id === previous.primaryPresserId)
+  const previousPressurePlan = previousPlan?.carrierId === carrier.id ? previousPlan : null;
+  const previousPrimary = previousPressurePlan?.primaryPresserId
+    ? pressureCandidates.find(({ player }) => player.id === previousPressurePlan.primaryPresserId)
     : null;
   const forwardPressCandidate = distanceFromOwnGoal > 42
     ? pressureCandidates
@@ -7065,8 +7267,8 @@ function updateDefensiveTeamPlan(active: MatchRuntime, dt: number) {
     || Boolean(forwardPressCandidate && distanceFromOwnGoal > 42)
     || (carrier.controlledBy === "p1" && carrier.carryTimer > 0.45 && (carrier.vel.length() < 1 || towardGoal));
   const coverCandidates = pressureCandidates.filter(({ player }) => player.id !== primaryPresserId);
-  const previousCover = previous?.secondaryCoverId
-    ? coverCandidates.find(({ player }) => player.id === previous.secondaryCoverId)
+  const previousCover = previousPressurePlan?.secondaryCoverId
+    ? coverCandidates.find(({ player }) => player.id === previousPressurePlan.secondaryCoverId)
     : null;
   const bestCover = [...coverCandidates].sort((a, b) => {
     const supportBias = distanceFromOwnGoal > 40
@@ -7084,7 +7286,7 @@ function updateDefensiveTeamPlan(active: MatchRuntime, dt: number) {
   const secondaryCoverId = emergencyCover
     ? (keepPreviousCover ? previousCover : bestCover)?.player.id ?? null
     : null;
-  if (!previous || !keepPreviousPrimary || (emergencyCover && !keepPreviousCover)) {
+  if (!previousPressurePlan || !keepPreviousPrimary || (emergencyCover && !keepPreviousCover)) {
     active.defensivePlanTimer = 0.48;
   }
 
@@ -7144,7 +7346,7 @@ function updateDefensiveTeamPlan(active: MatchRuntime, dt: number) {
   const occupiedTargets: THREE.Vector3[] = [];
   shapePlayers.forEach((player) => {
     const base = baseDefensiveShapeTarget(player, active, carrier);
-    const previousReceiverId = previous?.markedOpponentIds.get(player.id) ?? null;
+    const previousReceiverId = previousPlan?.markedOpponentIds.get(player.id) ?? null;
     const previousReceiver = previousReceiverId
       ? dangerousReceivers.find((candidate) => (
           candidate.id === previousReceiverId
@@ -8641,6 +8843,29 @@ function teammatesBetween(player: PlayerBody, receiver: PlayerBody, players: Pla
   }).length;
 }
 
+function aiShotCrossesGoalFrame(player: PlayerBody, active: MatchRuntime, target: THREE.Vector3, style: "shot" | "driven" | "finesse" | "chip") {
+  const goalZ = attackingGoalZ(player.team, active.half);
+  const from = active.ballPos.clone().setY(0);
+  const resolvedTarget = correctedShotTarget(player, active, target).setY(0);
+  const trajectory = resolvedTarget.clone().sub(from);
+  if (Math.abs(trajectory.z) < 0.01 || trajectory.z * (goalZ - from.z) <= 0) return false;
+  const planeTime = (goalZ - from.z) / trajectory.z;
+  if (planeTime <= 0) return false;
+  const xAtGoal = from.x + trajectory.x * planeTime;
+  const insideFrame = Math.abs(xAtGoal) <= GOAL_W / 2 - BALL_RADIUS - 0.45;
+  if (!insideFrame) return false;
+  const goalDistance = Math.abs(goalZ - player.pos.z);
+  const wideAngle = Math.abs(player.pos.x) > GOAL_W * 1.05;
+  const blockers = opponentsBetween(player, resolvedTarget, active.players, goalDistance < 16 ? 2.05 : 2.6);
+  const maximumBlockers = goalDistance < 13 ? 2 : goalDistance < 23 ? 1 : 0;
+  if (blockers > maximumBlockers) return false;
+  if (wideAngle && (goalDistance > 25 || blockers > 0) && style !== "finesse") return false;
+  const keeper = active.players.find((candidate) => candidate.team !== player.team && candidate.role === "keeper" && !candidate.sentOff);
+  const keeperCoversTarget = Boolean(keeper && Math.abs(keeper.pos.x - xAtGoal) < (style === "driven" ? 1.25 : 0.85) && goalDistance > 11);
+  if (keeperCoversTarget && style !== "finesse" && style !== "chip") return false;
+  return true;
+}
+
 function shoot(player: PlayerBody, active: MatchRuntime, style: "shot" | "driven" | "finesse" | "chip", kickCharge = 1) {
   const target = quickKickPoint(player, active);
   if (style === "finesse") {
@@ -8651,7 +8876,18 @@ function shoot(player: PlayerBody, active: MatchRuntime, style: "shot" | "driven
     );
   }
   if (style === "driven") target.z += Math.sign(target.z) * 1.2;
-  return kickTowardPoint(player, target, active, style, undefined, kickCharge);
+  const correctedTarget = correctedShotTarget(player, active, target);
+  const aiControlled = !player.controlledBy || active.p1Autopilot;
+  if (aiControlled && !aiShotCrossesGoalFrame(player, active, correctedTarget, style)) {
+    active.renderer.domElement.dataset.rejectedAiShots = String(Number(active.renderer.domElement.dataset.rejectedAiShots ?? "0") + 1);
+    player.decisionCooldown = Math.max(player.decisionCooldown, 0.18);
+    return false;
+  }
+  const kicked = kickTowardPoint(player, correctedTarget, active, style, undefined, kickCharge);
+  if (kicked && aiControlled) {
+    active.renderer.domElement.dataset.acceptedAiShots = String(Number(active.renderer.domElement.dataset.acceptedAiShots ?? "0") + 1);
+  }
+  return kicked;
 }
 
 function correctedShotTarget(player: PlayerBody, active: MatchRuntime, target: THREE.Vector3) {
@@ -8664,13 +8900,10 @@ function correctedShotTarget(player: PlayerBody, active: MatchRuntime, target: T
   const xAtGoal = from.x + direction.x * goalPlaneT;
   const safePostX = GOAL_W / 2 - 1.75;
   const wideAngle = Math.abs(player.pos.x) > GOAL_W * 0.95;
-  const assistedLimit = wideAngle ? GOAL_W / 2 + 1.1 : safePostX;
-  let correctedX = clamp(xAtGoal, -assistedLimit, assistedLimit);
+  let correctedX = clamp(xAtGoal, -safePostX, safePostX);
   if (wideAngle) {
     const farInside = -Math.sign(player.pos.x || 1) * (GOAL_W / 2 - 2.35);
-    if (Math.abs(xAtGoal) < GOAL_W / 2 + 0.9) {
-      correctedX = THREE.MathUtils.lerp(correctedX, farInside, 0.42);
-    }
+    correctedX = THREE.MathUtils.lerp(correctedX, farInside, 0.48);
   } else if (Math.abs(xAtGoal) > safePostX) {
     correctedX *= 0.92;
   }
