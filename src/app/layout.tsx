@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   description: "A 3D arcade soccer browser game with AI teammates and anonymous gameplay analytics.",
   icons: {
     icon: "/favicon.svg",
+    shortcut: "/favicon.svg",
+    apple: "/favicon.svg",
   },
 };
 

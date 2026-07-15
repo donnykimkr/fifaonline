@@ -1,19 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Futbol football icon">
-  <defs>
-    <linearGradient id="bg" x1="16" y1="12" x2="112" y2="116" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#0f172a"/>
-      <stop offset="1" stop-color="#064e3b"/>
-    </linearGradient>
-    <linearGradient id="gold" x1="28" y1="25" x2="101" y2="106" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#fef08a"/>
-      <stop offset="1" stop-color="#f59e0b"/>
-    </linearGradient>
-  </defs>
-  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
-  <path d="M20 91c20-5 30-20 42-45 6-12 20-17 33-12 14 5 22 19 18 33-4 14-18 23-32 20-22-5-35 5-61 4Z" fill="#0b1220" opacity=".65"/>
-  <circle cx="76" cy="60" r="32" fill="#f8fafc" stroke="url(#gold)" stroke-width="6"/>
-  <path d="M76 37 89 47 84 63H68L63 47Z" fill="#111827"/>
-  <path d="M76 37V28M89 47l15-6M84 63l10 14M68 63 58 77M63 47 48 41" stroke="#111827" stroke-width="5" stroke-linecap="round"/>
-  <path d="M47 81c-8 0-15 2-24 6M46 68c-10-2-17-1-27 2M50 55c-9-5-17-7-27-8" stroke="url(#gold)" stroke-width="8" stroke-linecap="round"/>
-  <path d="M42 99h58" stroke="#67e8f9" stroke-width="5" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Football">
+  <circle cx="64" cy="64" r="58" fill="#ffffff" stroke="#0f172a" stroke-width="8"/>
+  <path d="m64 35 17 12-6 20H53l-6-20Z" fill="#0f172a"/>
+  <path d="M64 35V10M81 47l24-8M75 67l15 21M53 67 38 88M47 47 23 39" fill="none" stroke="#0f172a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M23 39 9 63l12 25 17 0M105 39l14 24-12 25H90M38 88l4 23 22 11 22-11 4-23" fill="none" stroke="#0f172a" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

@@ -1,3 +1,5 @@
+import { writeFile } from "node:fs/promises";
+
 const [url, waitSeconds = "8", mode = "diagnostics"] = process.argv.slice(2);
 const port = Number(process.env.CDP_PORT ?? "9225");
 if (!url) throw new Error("Usage: node scripts/cdp-gameplay-test.mjs <url> [waitSeconds] [mode]");
@@ -36,6 +38,8 @@ const readLifecycle = () => evaluate(`(() => {
   if (!canvas) return { error: 'no canvas' };
   const d = canvas.dataset;
   return {
+    matchState: document.querySelector('main')?.dataset.matchState ?? null,
+    playPhase: document.querySelector('main')?.dataset.playPhase ?? null,
     engineId: d.engineId,
     restartCount: d.restartCount,
     activeEngineCount: d.activeEngineCount,
@@ -55,21 +59,40 @@ const readLifecycle = () => evaluate(`(() => {
     rendererTriangles: d.rendererTriangles,
     rendererDpr: d.rendererDpr,
     rendererPixels: d.rendererPixels,
+    rendererCount: d.rendererCount,
+    canvasBackingWidth: d.canvasBackingWidth,
+    canvasBackingHeight: d.canvasBackingHeight,
+    effectiveDpr: d.effectiveDpr,
+    matchUpdatesThisFrame: d.matchUpdatesThisFrame,
+    matchGeneration: d.matchGeneration,
+    fullTimeHandled: d.fullTimeHandled,
+    fullTimeTransitions: d.fullTimeTransitions,
     fps: d.fps,
     averageFrameMs: d.averageFrameMs,
     fullscreenActive: Boolean(document.fullscreenElement),
   };
 })()`);
+const waitForMatchState = async (state, timeoutMs = 12000) => {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const current = await evaluate(`document.querySelector('main')?.dataset.matchState ?? null`);
+    if (current === state) return true;
+    await sleep(100);
+  }
+  return false;
+};
 
 await send("Runtime.enable");
 await send("Page.enable");
 await send("Page.bringToFront");
 await sleep(850);
-await evaluate(`(() => {
-  const kickoff = [...document.querySelectorAll('button')].find((button) => button.textContent?.trim().toLowerCase() === 'kickoff');
-  if (kickoff) kickoff.click();
-  return Boolean(kickoff);
-})()`);
+if (mode !== "start-screen") {
+  await evaluate(`(() => {
+    const kickoff = [...document.querySelectorAll('button')].find((button) => button.textContent?.trim().toLowerCase() === 'kickoff');
+    if (kickoff) kickoff.click();
+    return Boolean(kickoff);
+  })()`);
+}
 await sleep(1800);
 
 if (mode === "ai-observe") {
@@ -145,8 +168,53 @@ if (mode === "lifecycle-events") {
   await sleep(1500);
   lifecycleSamples.push({ event: "after-refresh", ...(await readLifecycle()) });
 }
+if (mode === "fulltime-lifecycle") {
+  await dispatchKey("keyDown", "f", "KeyF");
+  await dispatchKey("keyUp", "f", "KeyF");
+  await sleep(450);
+  for (let iteration = 1; iteration <= 10; iteration += 1) {
+    const reachedFullTime = await waitForMatchState("ended");
+    lifecycleSamples.push({ iteration, event: "full-time", reachedFullTime, ...(await readLifecycle()) });
+    if (!reachedFullTime) break;
+    const restarted = await evaluate(`(() => {
+      const kickoff = [...document.querySelectorAll('button')].find((button) => button.textContent?.trim().toLowerCase() === 'kickoff');
+      kickoff?.click();
+      return Boolean(kickoff);
+    })()`);
+    const reachedPlaying = restarted && await waitForMatchState("playing", 3500);
+    await sleep(1050);
+    lifecycleSamples.push({ iteration, event: "restarted", reachedPlaying, ...(await readLifecycle()) });
+    if (!reachedPlaying) break;
+  }
+}
 
 const manualSamples = [];
+if (mode === "central-dribble") {
+  await sleep(250);
+  const awayAttack = url.includes("away-attack");
+  const forwardKey = awayAttack ? "ArrowRight" : "ArrowLeft";
+  await dispatchKey("keyDown", forwardKey, forwardKey);
+  for (let sample = 0; sample < 10; sample += 1) {
+    await sleep(500);
+    manualSamples.push(await evaluate(`(() => {
+      const canvas = document.querySelector('canvas');
+      return {
+        sample: ${sample + 1},
+        key: ${JSON.stringify(forwardKey)},
+        owner: canvas?.dataset.ballOwner,
+        player: canvas?.dataset.controlledPlayerId,
+        x: canvas?.dataset.controlledPlayerX,
+        z: canvas?.dataset.controlledPlayerZ,
+        primary: canvas?.dataset.primaryPresserId,
+        primaryLaneOffset: canvas?.dataset.primaryLaneOffset,
+        primaryPositionLaneOffset: canvas?.dataset.primaryPositionLaneOffset,
+        centralRouteProtected: canvas?.dataset.centralRouteProtected,
+        aggressiveCloserCount: canvas?.dataset.aggressiveCloserCount,
+      };
+    })()`));
+  }
+  await dispatchKey("keyUp", forwardKey, forwardKey);
+}
 if (mode === "manual") {
   for (const key of ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]) {
     await dispatchKey("keyDown", key, key);
@@ -188,6 +256,11 @@ const diagnostics = await evaluate(`(() => {
     'blockedPassTestsRequested','blockedPassTestsPassed','blockedPassTestsFailed',
     'boxFinishTestsRequested','boxFinishTestsPassed','boxFinishTestsFailed',
     'skillTestsRequested','skillTestsPassed','skillTestsFailed',
+    'passIntentTestsRequested','passIntentTestsRemaining','passIntentTestsPassed','passIntentTestsFailed',
+    'passIntentsCreated','passIntentsResolved','passIntentsAbandoned','passIntentReceiver','passIntentState','receiverMarkerCount',
+    'attackingPossessionTeam','attackingPossessionSeconds','primaryGoalSideProgress','primaryLaneOffset','primaryPositionGoalSideProgress','primaryPositionLaneOffset',
+    'centralRouteProtected','attackingMidfieldersFinalThird','attackingFullbacksAdvanced','attackingCenterBackLineProgress',
+    'rendererCount','canvasBackingWidth','canvasBackingHeight','effectiveDpr','matchUpdatesThisFrame','matchGeneration','fullTimeHandled','fullTimeTransitions',
     'goalKickTestsRequested','goalKickTestsRemaining','goalKickCount','goalKickState','goalKickReceiver','goalKickKeeperTeam','goalKickTargetTeam',
     'goalKickTargetSlot','goalKickTargetLine','goalKickSafetyScore','goalKickTargetDistance','goalKickLaneBlockers','goalKickReceiverPressure',
     'goalKickLandingPressure','goalKickShapeOptions','goalKickShapeLeft','goalKickShapeCenter','goalKickShapeRight','goalKickSameTeamTargets',
@@ -200,7 +273,12 @@ const diagnostics = await evaluate(`(() => {
     .filter(Boolean);
   return result;
 })()`);
-console.log(JSON.stringify({ url, mode, manualSamples, lifecycleSamples, diagnostics }, null, 2));
+const screenshotPath = process.env.SCREENSHOT_PATH;
+if (screenshotPath) {
+  const screenshot = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+  await writeFile(screenshotPath, Buffer.from(screenshot.data, "base64"));
+}
+console.log(JSON.stringify({ url, mode, manualSamples, lifecycleSamples, diagnostics, screenshotPath: screenshotPath ?? null }, null, 2));
 await send("Page.close");
 socket.close();
 process.exit(0);
