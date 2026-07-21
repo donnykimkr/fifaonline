@@ -463,12 +463,10 @@ const AD_BOARD_DISPLAY_RENDER_ORDER = 4;
 const AD_BOARD_COLLISION_TOP = AD_BOARD_BASE_Y + AD_BOARD_HEIGHT + BALL_RADIUS;
 const AD_BOARD_CORNER_RADIUS = 3.2;
 const AD_BOARD_CORNER_SEGMENTS = 20;
-const AD_BOARD_TEXTURE_REPEATS = 21;
-// The repeat count is 3x denser than the previous ribbon, so the UV rate is
-// scaled by the same amount to preserve the established world-space motion.
-const AD_BOARD_SCROLL_SPEED = 0.225;
+const AD_BOARD_TEXTURE_REPEATS = 7;
+const AD_BOARD_SCROLL_SPEED = 0.075;
 const AD_BOARD_TEXTURE_WIDTH = 2048;
-const AD_BOARD_TEXTURE_HEIGHT = 192;
+const AD_BOARD_TEXTURE_HEIGHT = 64;
 const GRASS_DARK_COLOR = "#176b37";
 const GRASS_LIGHT_COLOR = "#218247";
 const GRASS_STRIPE_WIDTH = 8;
@@ -2221,7 +2219,7 @@ function advertisingBrandFontSize(context: CanvasRenderingContext2D, canvas: HTM
     context.font = `900 ${fontSize}px "Arial Black", Arial, sans-serif`;
     if (context.measureText(brandName).width <= maximumTextWidth) break;
     fontSize -= 4;
-  } while (fontSize > 92);
+  } while (fontSize > 30);
   return fontSize;
 }
 
@@ -2236,7 +2234,7 @@ function paintAdvertisingBrand(canvas: HTMLCanvasElement, brandIndex: number) {
   const fontSize = advertisingBrandFontSize(context, canvas, brand.name);
   context.font = `900 ${fontSize}px "Arial Black", Arial, sans-serif`;
   context.lineJoin = "round";
-  context.lineWidth = Math.max(4, fontSize * 0.045);
+  context.lineWidth = Math.max(2, fontSize * 0.045);
   context.strokeStyle = "rgba(0, 0, 0, 0.52)";
   context.strokeText(brand.name, canvas.width / 2, canvas.height * 0.505);
   context.fillStyle = brand.accent;
