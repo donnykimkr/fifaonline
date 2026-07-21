@@ -447,6 +447,10 @@ const VISITOR_STORAGE_KEY = "futbol_visitor_id";
 const SETTINGS_STORAGE_KEY = "futbol_offline_settings";
 const AD_BOARD_INNER_X = FIELD_W / 2 + TOUCHLINE_MARGIN;
 const AD_BOARD_INNER_Z = FIELD_L / 2 + TOUCHLINE_MARGIN;
+const AD_BOARD_HEIGHT = 2.25;
+const AD_BOARD_BASE_Y = 0.12;
+const AD_BOARD_THICKNESS = 0.2;
+const AD_BOARD_COLLISION_TOP = AD_BOARD_BASE_Y + AD_BOARD_HEIGHT + BALL_RADIUS;
 const ADVERTISING_BRANDS = [
   { name: "NOVA STRIDE", category: "PERFORMANCE", background: "#0b1833", accent: "#4de8ff" },
   { name: "PULSE+", category: "ENERGY", background: "#4b1021", accent: "#ffcf4d" },
@@ -2096,27 +2100,26 @@ function drawAdvertisingBrand(texture: THREE.CanvasTexture, brandIndex: number) 
   context.fillStyle = brand.background;
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.fillStyle = brand.accent;
-  context.fillRect(0, 0, canvas.width, 10);
-  context.fillRect(0, canvas.height - 10, canvas.width, 10);
+  context.fillRect(0, canvas.height - 12, canvas.width, 12);
   context.textAlign = "center";
   context.textBaseline = "middle";
-  context.font = "900 66px Arial, sans-serif";
-  context.fillText(brand.name, canvas.width / 2, canvas.height * 0.47);
-  context.font = "700 24px Arial, sans-serif";
+  context.font = "900 126px Arial, sans-serif";
+  context.fillText(brand.name, canvas.width / 2, canvas.height * 0.45);
+  context.font = "700 42px Arial, sans-serif";
   context.fillText(brand.category, canvas.width / 2, canvas.height * 0.76);
   texture.needsUpdate = true;
 }
 
 function createAdvertisingBoardTexture() {
   const canvas = document.createElement("canvas");
-  canvas.width = 1024;
-  canvas.height = 192;
+  canvas.width = 2048;
+  canvas.height = 320;
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.ClampToEdgeWrapping;
-  texture.repeat.set(3.4, 1);
-  texture.minFilter = THREE.LinearFilter;
+  texture.repeat.set(7, 1);
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
   drawAdvertisingBrand(texture, 0);
   return texture;
@@ -2126,18 +2129,67 @@ function addLightweightStadium(scene: THREE.Scene) {
   const stadium = new THREE.Group();
   stadium.name = "lightweight-stadium";
   const adTexture = createAdvertisingBoardTexture();
-  const adMaterial = new THREE.MeshBasicMaterial({ map: adTexture, color: "#ffffff" });
+  const adMaterial = new THREE.MeshBasicMaterial({ map: adTexture, color: "#ffffff", side: THREE.FrontSide });
+  const adBackingMaterial = new THREE.MeshLambertMaterial({ color: "#101923" });
+  const adTopMaterial = new THREE.MeshLambertMaterial({ color: "#101923" });
   const runoffWidth = FIELD_W + TOUCHLINE_MARGIN * 2;
   const runoffLength = FIELD_L + TOUCHLINE_MARGIN * 2;
   [-1, 1].forEach((side) => {
-    const longBoard = new THREE.Mesh(new THREE.BoxGeometry(runoffWidth + 0.4, 1.45, 0.16), adMaterial);
-    longBoard.position.set(0, 0.92, side * (runoffLength / 2 + 0.08));
-    longBoard.name = `animated-ad-board-goal-${side}`;
-    stadium.add(longBoard);
-    const sideBoard = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.45, runoffLength + 0.4), adMaterial);
-    sideBoard.position.set(side * (runoffWidth / 2 + 0.08), 0.92, 0);
-    sideBoard.name = `animated-ad-board-side-${side}`;
-    stadium.add(sideBoard);
+    const goalBoardZ = side * (runoffLength / 2 + AD_BOARD_THICKNESS / 2);
+    const goalBacking = new THREE.Mesh(
+      new THREE.BoxGeometry(runoffWidth + 0.4, AD_BOARD_HEIGHT, AD_BOARD_THICKNESS),
+      adBackingMaterial,
+    );
+    goalBacking.position.set(0, AD_BOARD_BASE_Y + AD_BOARD_HEIGHT / 2, goalBoardZ);
+    goalBacking.name = `ad-board-backing-goal-${side}`;
+    stadium.add(goalBacking);
+    const goalDisplay = new THREE.Mesh(
+      new THREE.PlaneGeometry(runoffWidth, AD_BOARD_HEIGHT - 0.24),
+      adMaterial,
+    );
+    goalDisplay.position.set(
+      0,
+      AD_BOARD_BASE_Y + AD_BOARD_HEIGHT / 2 - 0.02,
+      goalBoardZ - side * (AD_BOARD_THICKNESS / 2 + 0.004),
+    );
+    goalDisplay.rotation.y = side > 0 ? Math.PI : 0;
+    goalDisplay.name = `animated-ad-board-goal-${side}`;
+    stadium.add(goalDisplay);
+    const goalTop = new THREE.Mesh(
+      new THREE.BoxGeometry(runoffWidth + 0.46, 0.08, AD_BOARD_THICKNESS + 0.08),
+      adTopMaterial,
+    );
+    goalTop.position.set(0, AD_BOARD_BASE_Y + AD_BOARD_HEIGHT + 0.04, goalBoardZ);
+    goalTop.name = `ad-board-clean-top-goal-${side}`;
+    stadium.add(goalTop);
+
+    const sideBoardX = side * (runoffWidth / 2 + AD_BOARD_THICKNESS / 2);
+    const sideBacking = new THREE.Mesh(
+      new THREE.BoxGeometry(AD_BOARD_THICKNESS, AD_BOARD_HEIGHT, runoffLength + 0.4),
+      adBackingMaterial,
+    );
+    sideBacking.position.set(sideBoardX, AD_BOARD_BASE_Y + AD_BOARD_HEIGHT / 2, 0);
+    sideBacking.name = `ad-board-backing-side-${side}`;
+    stadium.add(sideBacking);
+    const sideDisplay = new THREE.Mesh(
+      new THREE.PlaneGeometry(runoffLength, AD_BOARD_HEIGHT - 0.24),
+      adMaterial,
+    );
+    sideDisplay.position.set(
+      sideBoardX - side * (AD_BOARD_THICKNESS / 2 + 0.004),
+      AD_BOARD_BASE_Y + AD_BOARD_HEIGHT / 2 - 0.02,
+      0,
+    );
+    sideDisplay.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+    sideDisplay.name = `animated-ad-board-side-${side}`;
+    stadium.add(sideDisplay);
+    const sideTop = new THREE.Mesh(
+      new THREE.BoxGeometry(AD_BOARD_THICKNESS + 0.08, 0.08, runoffLength + 0.46),
+      adTopMaterial,
+    );
+    sideTop.position.set(sideBoardX, AD_BOARD_BASE_Y + AD_BOARD_HEIGHT + 0.04, 0);
+    sideTop.name = `ad-board-clean-top-side-${side}`;
+    stadium.add(sideTop);
   });
 
   const concrete = new THREE.MeshLambertMaterial({ color: "#344553" });
@@ -2169,6 +2221,108 @@ function addLightweightStadium(scene: THREE.Scene) {
     stadium.add(ring);
   });
 
+  const seatGeometrySideline = new THREE.BoxGeometry(0.82, 0.3, 5.1);
+  const seatGeometryEnd = new THREE.BoxGeometry(5.1, 0.3, 0.82);
+  const seatMaterial = new THREE.MeshLambertMaterial({ color: "#1fa1b6" });
+  const sidelineRows = 11;
+  const endRows = 9;
+  const sidelineSegments = Math.max(12, Math.floor((runoffLength - 12) / 5.7));
+  const endSegments = Math.max(10, Math.floor((runoffWidth - 12) / 5.7));
+  const sidelineSeatCount = 2 * sidelineRows * sidelineSegments;
+  const endSeatCount = 2 * endRows * endSegments;
+  const sidelineSeats = new THREE.InstancedMesh(seatGeometrySideline, seatMaterial, sidelineSeatCount);
+  const endSeats = new THREE.InstancedMesh(seatGeometryEnd, seatMaterial, endSeatCount);
+  const seatMatrix = new THREE.Matrix4();
+  const seatColor = new THREE.Color();
+  let sidelineSeatIndex = 0;
+  for (const side of [-1, 1]) {
+    for (let row = 0; row < sidelineRows; row += 1) {
+      const x = side * (runoffWidth / 2 + 6.1 + row * 1.22);
+      const y = 3.05 + row * 0.42;
+      for (let segment = 0; segment < sidelineSegments; segment += 1) {
+        const normalized = (segment + 0.5) / sidelineSegments;
+        if ([0.25, 0.5, 0.75].some((aisle) => Math.abs(normalized - aisle) < 0.032)) continue;
+        const z = -runoffLength / 2 + 6 + normalized * (runoffLength - 12);
+        seatMatrix.makeTranslation(x, y, z);
+        sidelineSeats.setMatrixAt(sidelineSeatIndex, seatMatrix);
+        seatColor.set((row + segment) % 3 === 0 ? "#16788a" : "#24a9bd");
+        sidelineSeats.setColorAt(sidelineSeatIndex, seatColor);
+        sidelineSeatIndex += 1;
+      }
+    }
+  }
+  sidelineSeats.count = sidelineSeatIndex;
+  sidelineSeats.name = "stadium-seat-rows-sideline";
+  sidelineSeats.instanceMatrix.needsUpdate = true;
+  if (sidelineSeats.instanceColor) sidelineSeats.instanceColor.needsUpdate = true;
+  stadium.add(sidelineSeats);
+
+  let endSeatIndex = 0;
+  for (const side of [-1, 1]) {
+    for (let row = 0; row < endRows; row += 1) {
+      const z = side * (runoffLength / 2 + 6.1 + row * 1.22);
+      const y = 3.05 + row * 0.42;
+      for (let segment = 0; segment < endSegments; segment += 1) {
+        const normalized = (segment + 0.5) / endSegments;
+        if ([0.3, 0.7].some((aisle) => Math.abs(normalized - aisle) < 0.04)) continue;
+        const x = -runoffWidth / 2 + 6 + normalized * (runoffWidth - 12);
+        seatMatrix.makeTranslation(x, y, z);
+        endSeats.setMatrixAt(endSeatIndex, seatMatrix);
+        seatColor.set((row + segment) % 3 === 0 ? "#155f70" : "#2096aa");
+        endSeats.setColorAt(endSeatIndex, seatColor);
+        endSeatIndex += 1;
+      }
+    }
+  }
+  endSeats.count = endSeatIndex;
+  endSeats.name = "stadium-seat-rows-end";
+  endSeats.instanceMatrix.needsUpdate = true;
+  if (endSeats.instanceColor) endSeats.instanceColor.needsUpdate = true;
+  stadium.add(endSeats);
+
+  const stairMaterial = new THREE.MeshLambertMaterial({ color: "#c9d4d8" });
+  const sidelineStairGeometry = new THREE.BoxGeometry(1.06, 0.16, 1.68);
+  const endStairGeometry = new THREE.BoxGeometry(1.68, 0.16, 1.06);
+  const sidelineStairCount = 2 * sidelineRows * 3;
+  const endStairCount = 2 * endRows * 2;
+  const sidelineStairs = new THREE.InstancedMesh(sidelineStairGeometry, stairMaterial, sidelineStairCount);
+  const endStairs = new THREE.InstancedMesh(endStairGeometry, stairMaterial, endStairCount);
+  let sidelineStairIndex = 0;
+  for (const side of [-1, 1]) {
+    for (let row = 0; row < sidelineRows; row += 1) {
+      for (const aisle of [-0.25, 0, 0.25]) {
+        seatMatrix.makeTranslation(
+          side * (runoffWidth / 2 + 6.05 + row * 1.22),
+          3.18 + row * 0.42,
+          aisle * runoffLength,
+        );
+        sidelineStairs.setMatrixAt(sidelineStairIndex, seatMatrix);
+        sidelineStairIndex += 1;
+      }
+    }
+  }
+  let endStairIndex = 0;
+  for (const side of [-1, 1]) {
+    for (let row = 0; row < endRows; row += 1) {
+      for (const aisle of [-0.2, 0.2]) {
+        seatMatrix.makeTranslation(
+          aisle * runoffWidth,
+          3.18 + row * 0.42,
+          side * (runoffLength / 2 + 6.05 + row * 1.22),
+        );
+        endStairs.setMatrixAt(endStairIndex, seatMatrix);
+        endStairIndex += 1;
+      }
+    }
+  }
+  sidelineStairs.name = "stadium-stair-aisles-sideline";
+  endStairs.name = "stadium-stair-aisles-end";
+  sidelineStairs.instanceMatrix.needsUpdate = true;
+  endStairs.instanceMatrix.needsUpdate = true;
+  stadium.add(sidelineStairs, endStairs);
+  stadium.userData.seatingRows = sidelineRows + endRows;
+  stadium.userData.stairAisles = 10;
+
   scene.add(stadium);
   return adTexture;
 }
@@ -2187,7 +2341,7 @@ function updateAdvertisingBoards(active: MatchRuntime, dt: number) {
 }
 
 function resolveAdvertisingBoardCollision(active: MatchRuntime) {
-  if (active.ballOwnerId || active.ballPos.y > 2.15) return;
+  if (active.ballOwnerId || active.ballPos.y > AD_BOARD_COLLISION_TOP) return;
   const xLimit = AD_BOARD_INNER_X - BALL_RADIUS;
   const zLimit = AD_BOARD_INNER_Z - BALL_RADIUS;
   let hitAxis: "x" | "z" | null = null;
@@ -6005,7 +6159,10 @@ export function ArcadeSoccerGame() {
         </div>
       )}
       {matchState === "playing" && !tutorialUi.active && !showTouchControls && (
-        <div className="pointer-events-none fixed bottom-4 left-4 z-20 hidden max-w-xl flex-wrap items-center gap-2 rounded-md border border-white/15 bg-black/45 px-3 py-2 text-xs font-bold text-white/80 shadow-lg backdrop-blur-sm md:flex">
+        <div
+          data-testid="keyboard-guide"
+          className="pointer-events-none fixed right-4 top-[calc(env(safe-area-inset-top)+12.5rem)] z-20 hidden w-48 grid-cols-2 gap-x-2 gap-y-1.5 rounded-md border border-white/15 bg-black/45 px-2.5 py-2 text-[11px] font-bold text-white/80 shadow-lg backdrop-blur-sm md:grid xl:right-5 xl:top-[calc(env(safe-area-inset-top)+11.5rem)]"
+        >
           {[
             ["Arrow Keys", "Move"],
             ["S", "Pass"],
@@ -6016,9 +6173,9 @@ export function ArcadeSoccerGame() {
             ["U", "AI Mode"],
             ["F", "Fullscreen"],
           ].map(([key, label]) => (
-            <span key={key} className="inline-flex items-center gap-1.5">
-              <kbd className="rounded border border-white/25 bg-white/10 px-2 py-1 font-mono text-[11px] font-black text-white">{key}</kbd>
-              <span className="text-white/65">{label}</span>
+            <span key={key} className="inline-flex min-w-0 items-center gap-1">
+              <kbd className="shrink-0 rounded border border-white/25 bg-white/10 px-1.5 py-0.5 font-mono text-[10px] font-black text-white">{key}</kbd>
+              <span className="truncate text-white/65">{label}</span>
             </span>
           ))}
         </div>
@@ -6590,8 +6747,31 @@ function updateMatch(
       const carrier = active.players.find((candidate) => candidate.id === active.defensivePlan?.carrierId) ?? null;
       const markedId = active.defensivePlan.markedOpponentIds.get(player.id);
       const markedOpponent = markedId ? active.players.find((candidate) => candidate.id === markedId) ?? null : null;
-      const facingTarget = defensivePlanRole === "press" || defensivePlanRole === "cover" ? carrier : markedOpponent ?? carrier;
-      if (facingTarget && (player.line === "defender" || player.pos.distanceTo(facingTarget.pos) < 20)) {
+      const markingIncomingReceiver = Boolean(
+        markedOpponent
+        && active.ballState === "kicked"
+        && active.intendedReceiverId === markedOpponent.id,
+      );
+      const facingTarget = markingIncomingReceiver
+        ? null
+        : defensivePlanRole === "press" || defensivePlanRole === "cover" ? carrier : markedOpponent ?? carrier;
+      if (markingIncomingReceiver && markedOpponent) {
+        // Face the stable source side of the pass. Following the ball's current
+        // position can flip the marker around as the ball crosses the contest point.
+        const ballSide = active.ballVel.clone().setY(0).multiplyScalar(-1);
+        if (ballSide.lengthSq() < 0.04) ballSide.copy(active.ballPos).setY(0).sub(player.pos);
+        const attackerAwareness = markedOpponent.pos.clone().sub(player.pos).setY(0);
+        if (ballSide.lengthSq() > 0.04) {
+          ballSide.normalize();
+          if (attackerAwareness.lengthSq() > 0.04) ballSide.lerp(attackerAwareness.normalize(), 0.24).normalize();
+          setPlayerHeading(player, headingFromDirection(ballSide), dt, 20.5);
+          active.renderer.domElement.dataset.incomingMarkerId = player.id;
+          active.renderer.domElement.dataset.incomingMarkedReceiverId = markedOpponent.id;
+          active.renderer.domElement.dataset.incomingMarkerBallFacingDot = facingDirection(player)
+            .dot(ballSide)
+            .toFixed(4);
+        }
+      } else if (facingTarget && (player.line === "defender" || player.pos.distanceTo(facingTarget.pos) < 20)) {
         const faceDirection = facingTarget.pos.clone().sub(player.pos).setY(0);
         if (faceDirection.lengthSq() > 0.05) {
           setPlayerHeading(player, headingFromDirection(faceDirection), dt, player.line === "defender" ? 13.5 : 8.5);
@@ -12905,6 +13085,8 @@ function currentAimDirection(player: PlayerBody, active: MatchRuntime, keys?: Se
 
 const MAX_USER_AIM_ASSIST_RADIANS = THREE.MathUtils.degToRad(14);
 const MAX_IMMEDIATE_AIM_ASSIST_RADIANS = THREE.MathUtils.degToRad(7);
+const MAX_LOFT_AIM_ASSIST_RADIANS = THREE.MathUtils.degToRad(24);
+const MAX_LOFT_IMMEDIATE_AIM_ASSIST_RADIANS = THREE.MathUtils.degToRad(12);
 
 function rotateDirectionToward(source: THREE.Vector3, target: THREE.Vector3, maxRadians: number) {
   const from = source.clone().setY(0).normalize();
@@ -12926,6 +13108,10 @@ function resolveManualPassAim(
   style: "short" | "long" = "short",
 ) {
   const rawAim = currentAimDirection(player, active, keys);
+  const maxAssistRadians = style === "long" ? MAX_LOFT_AIM_ASSIST_RADIANS : MAX_USER_AIM_ASSIST_RADIANS;
+  const maxImmediateAssistRadians = style === "long"
+    ? MAX_LOFT_IMMEDIATE_AIM_ASSIST_RADIANS
+    : MAX_IMMEDIATE_AIM_ASSIST_RADIANS;
   const passDistance = style === "long"
     ? clamp(24 + charge * 52, 28, 78)
     : clamp(18 + charge * 34, 20, 56);
@@ -12938,8 +13124,8 @@ function resolveManualPassAim(
     lockedReceiver
     && lockedDirection
     && lockedDirection.lengthSq() > 0.1
-    && rawAim.dot(lockedDirection.normalize()) > 0.68
-    && lockedReceiver.pos.distanceTo(player.pos) < passDistance + 10,
+    && rawAim.dot(lockedDirection.normalize()) > (style === "long" ? 0.5 : 0.68)
+    && lockedReceiver.pos.distanceTo(player.pos) < passDistance + (style === "long" ? 14 : 10),
   );
   const receiver = active.manualAimLockTimer > 0 && lockedStillIntentional ? lockedReceiver : freshReceiver;
   if (receiver && receiver.id !== active.manualAimReceiverId) {
@@ -12954,8 +13140,8 @@ function resolveManualPassAim(
     const receiverTarget = kickTargetForStyle(player, active, receiver, style);
     const desired = receiverTarget.clone().sub(player.pos).setY(0).normalize();
     const signedTotal = Math.atan2(rawAim.x * desired.z - rawAim.z * desired.x, clamp(rawAim.dot(desired), -1, 1));
-    const limitedTotal = clamp(signedTotal, -MAX_USER_AIM_ASSIST_RADIANS, MAX_USER_AIM_ASSIST_RADIANS);
-    const immediate = clamp(limitedTotal, -MAX_IMMEDIATE_AIM_ASSIST_RADIANS, MAX_IMMEDIATE_AIM_ASSIST_RADIANS);
+    const limitedTotal = clamp(signedTotal, -maxAssistRadians, maxAssistRadians);
+    const immediate = clamp(limitedTotal, -maxImmediateAssistRadians, maxImmediateAssistRadians);
     correctedAim = rotateDirectionToward(rawAim, desired, Math.abs(immediate));
     curveAssistRadians = limitedTotal - immediate;
   }
@@ -12973,7 +13159,8 @@ function resolveManualPassAim(
   active.renderer.domElement.dataset.aimAssistDegrees = THREE.MathUtils.radToDeg(
     Math.acos(clamp(rawAim.dot(finalDirection), -1, 1)) + Math.abs(curveAssistRadians),
   ).toFixed(2);
-  active.renderer.domElement.dataset.maxAimAssistDegrees = "14";
+  active.renderer.domElement.dataset.maxAimAssistDegrees = style === "long" ? "24" : "14";
+  active.renderer.domElement.dataset.loftLandingCorrection = style === "long" && receiver ? "wider-cone" : "none";
   return {
     finalDirection,
     passDistance,
@@ -13756,9 +13943,9 @@ function manualAimReceiver(
     })
     .filter(({ teammate, distance, alignment, lateralMiss }) => (
       distance > 4
-      && distance < passDistance + 8
-      && alignment > 0.78
-      && lateralMiss < 5.8
+      && distance < passDistance + (style === "long" ? 14 : 8)
+      && alignment > (style === "long" ? 0.58 : 0.78)
+      && lateralMiss < (style === "long" ? 9.4 : 5.8)
       && (style === "long"
         ? opponentPressureAtPoint(player.team, teammate.pos, active.players, 5.6) <= 1
         : opponentsBetween(player, teammate.pos, active.players, 2.8) === 0)
