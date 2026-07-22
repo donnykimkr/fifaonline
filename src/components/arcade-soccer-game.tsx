@@ -1573,19 +1573,19 @@ function createEllipticalSectionGeometry(
 
 function createTorsoGeometry() {
   return createEllipticalSectionGeometry([
-    { y: -0.64, radiusX: 0.29, radiusZ: 0.19 },
-    { y: -0.34, radiusX: 0.34, radiusZ: 0.21 },
-    { y: 0.08, radiusX: 0.46, radiusZ: 0.25 },
-    { y: 0.44, radiusX: 0.56, radiusZ: 0.27 },
-    { y: 0.62, radiusX: 0.49, radiusZ: 0.23 },
+    { y: -0.62, radiusX: 0.31, radiusZ: 0.2 },
+    { y: -0.34, radiusX: 0.36, radiusZ: 0.22 },
+    { y: 0.08, radiusX: 0.48, radiusZ: 0.26 },
+    { y: 0.45, radiusX: 0.57, radiusZ: 0.29 },
+    { y: 0.64, radiusX: 0.5, radiusZ: 0.25 },
   ], 10);
 }
 
 function createPelvisGeometry() {
   return createEllipticalSectionGeometry([
-    { y: -0.24, radiusX: 0.34, radiusZ: 0.2 },
-    { y: 0.02, radiusX: 0.4, radiusZ: 0.23 },
-    { y: 0.22, radiusX: 0.34, radiusZ: 0.2 },
+    { y: -0.25, radiusX: 0.35, radiusZ: 0.21 },
+    { y: 0.01, radiusX: 0.42, radiusZ: 0.25 },
+    { y: 0.24, radiusX: 0.36, radiusZ: 0.22 },
   ], 8);
 }
 
@@ -1645,30 +1645,30 @@ function makeHumanFigure({
 
   const pelvisRoot = new THREE.Group();
   pelvisRoot.name = "pelvis-root";
-  // All lower-body joints share one ground-referenced chain. The previous
-  // nested offsets put the ankle and boot below y=0, hiding the shins/feet.
-  pelvisRoot.position.y = 1.25;
+  const pelvisRestY = 1.48;
+  pelvisRoot.position.y = pelvisRestY;
+  pelvisRoot.userData.restY = pelvisRestY;
   const hip = new THREE.Mesh(sharedGeometry("player-hip-athletic", createPelvisGeometry), shortsMaterial);
   hip.position.y = 0;
   const torsoRoot = new THREE.Group();
   torsoRoot.name = "torso-root";
-  torsoRoot.position.y = 1.29;
+  torsoRoot.position.y = 1.48;
   const torso = new THREE.Mesh(sharedGeometry("player-torso-athletic", createTorsoGeometry), shirtMaterial);
   torso.name = "torso";
-  torso.position.y = 0.55;
+  torso.position.y = 0.58;
   const chestRoot = new THREE.Group();
   chestRoot.name = "chest-root";
-  chestRoot.position.y = 1.02;
+  chestRoot.position.y = 1.06;
   const collar = new THREE.Mesh(sharedGeometry("player-collar", () => new THREE.TorusGeometry(0.16, 0.034, 5, 10, Math.PI)), trimMaterial);
   collar.rotation.x = Math.PI / 2;
   collar.position.set(0, 0.14, 0.23);
   const headRoot = new THREE.Group();
   headRoot.name = "head-root";
-  headRoot.position.y = 0.25;
-  const neck = new THREE.Mesh(sharedGeometry("player-neck", () => new THREE.CylinderGeometry(0.105, 0.13, 0.2, 6)), skinMaterial);
+  headRoot.position.y = 0.27;
+  const neck = new THREE.Mesh(sharedGeometry("player-neck", () => new THREE.CylinderGeometry(0.105, 0.135, 0.22, 7)), skinMaterial);
   neck.name = "neck";
   neck.position.y = 0.02;
-  const head = new THREE.Mesh(sharedGeometry("player-head", () => new THREE.SphereGeometry(0.25, 8, 6)), skinMaterial);
+  const head = new THREE.Mesh(sharedGeometry("player-head", () => new THREE.SphereGeometry(0.245, 8, 6)), skinMaterial);
   head.name = "head";
   head.scale.set(0.84, 1.08, 0.88);
   head.position.y = 0.26;
@@ -1685,21 +1685,21 @@ function makeHumanFigure({
   [-1, 1].forEach((side) => {
     const shoulder = new THREE.Group();
     shoulder.name = side < 0 ? "left-arm" : "right-arm";
-    shoulder.position.set(side * 0.5, -0.01, 0.01);
-    shoulder.rotation.z = side * 0.16;
-    const sleeve = new THREE.Mesh(sharedGeometry("player-shirt-sleeve", () => new THREE.CapsuleGeometry(0.12, 0.16, 2, 7)), shirtMaterial);
-    sleeve.position.y = -0.1;
-    const upperArm = new THREE.Mesh(sharedGeometry("player-upper-arm", () => new THREE.CapsuleGeometry(0.098, 0.28, 2, 7)), skinMaterial);
-    upperArm.position.y = -0.3;
+    shoulder.position.set(side * 0.51, -0.01, 0.01);
+    shoulder.rotation.z = side * 0.13;
+    const sleeve = new THREE.Mesh(sharedGeometry("player-shirt-sleeve", () => new THREE.CapsuleGeometry(0.13, 0.18, 2, 7)), shirtMaterial);
+    sleeve.position.y = -0.11;
+    const upperArm = new THREE.Mesh(sharedGeometry("player-upper-arm", () => new THREE.CapsuleGeometry(0.108, 0.3, 2, 7)), skinMaterial);
+    upperArm.position.y = -0.31;
     const elbow = new THREE.Group();
     elbow.name = side < 0 ? "left-elbow" : "right-elbow";
-    elbow.position.y = -0.47;
+    elbow.position.y = -0.53;
     elbow.rotation.x = 0.34;
-    const forearm = new THREE.Mesh(sharedGeometry("player-forearm", () => new THREE.CapsuleGeometry(0.082, 0.4, 2, 6)), skinMaterial);
-    forearm.position.y = -0.21;
-    const hand = new THREE.Mesh(sharedGeometry("player-hand", () => new THREE.SphereGeometry(0.1, 6, 5)), skinMaterial);
+    const forearm = new THREE.Mesh(sharedGeometry("player-forearm", () => new THREE.CapsuleGeometry(0.09, 0.33, 2, 6)), skinMaterial);
+    forearm.position.y = -0.25;
+    const hand = new THREE.Mesh(sharedGeometry("player-hand", () => new THREE.SphereGeometry(0.105, 6, 5)), skinMaterial);
     hand.scale.set(0.82, 1.12, 0.72);
-    hand.position.y = -0.46;
+    hand.position.y = -0.52;
     elbow.add(forearm, hand);
     shoulder.add(sleeve, upperArm, elbow);
     chestRoot.add(shoulder);
@@ -1708,29 +1708,29 @@ function makeHumanFigure({
   [-1, 1].forEach((side) => {
     const leg = new THREE.Group();
     leg.name = side < 0 ? "left-leg" : "right-leg";
-    leg.position.set(side * 0.22, -0.02, 0);
-    const shortsLeg = new THREE.Mesh(sharedGeometry("player-shorts-leg", () => new THREE.CapsuleGeometry(0.15, 0.16, 2, 6)), shortsMaterial);
-    shortsLeg.position.y = -0.12;
-    const thigh = new THREE.Mesh(sharedGeometry("player-thigh", () => new THREE.CapsuleGeometry(0.145, 0.35, 2, 7)), skinMaterial);
+    leg.position.set(side * 0.225, -0.03, 0);
+    const shortsLeg = new THREE.Mesh(sharedGeometry("player-shorts-leg", () => new THREE.CapsuleGeometry(0.18, 0.18, 2, 7)), shortsMaterial);
+    shortsLeg.position.y = -0.13;
+    const thigh = new THREE.Mesh(sharedGeometry("player-thigh", () => new THREE.CapsuleGeometry(0.17, 0.37, 2, 7)), skinMaterial);
     thigh.name = side < 0 ? "left-thigh" : "right-thigh";
-    thigh.scale.set(1.02, 1, 0.94);
-    thigh.position.y = -0.31;
+    thigh.scale.set(1.04, 1, 0.96);
+    thigh.position.y = -0.35;
     const knee = new THREE.Group();
     knee.name = side < 0 ? "left-knee" : "right-knee";
-    knee.position.y = -0.61;
-    const kneecap = new THREE.Mesh(sharedGeometry("player-kneecap", () => new THREE.SphereGeometry(0.125, 6, 5)), skinMaterial);
+    knee.position.y = -0.72;
+    const kneecap = new THREE.Mesh(sharedGeometry("player-kneecap", () => new THREE.SphereGeometry(0.14, 6, 5)), skinMaterial);
     kneecap.scale.set(1, 0.9, 0.92);
-    const calf = new THREE.Mesh(sharedGeometry("player-calf", () => new THREE.CapsuleGeometry(0.11, 0.3, 2, 7)), sockMaterial);
+    const calf = new THREE.Mesh(sharedGeometry("player-calf", () => new THREE.CapsuleGeometry(0.135, 0.34, 2, 7)), sockMaterial);
     calf.name = side < 0 ? "left-calf" : "right-calf";
-    calf.scale.set(1.04, 1, 0.9);
-    calf.position.y = -0.26;
+    calf.scale.set(1.04, 1, 0.92);
+    calf.position.y = -0.3;
     const ankle = new THREE.Group();
     ankle.name = side < 0 ? "left-foot" : "right-foot";
-    ankle.position.y = -0.52;
+    ankle.position.y = -0.62;
     const bootMesh = new THREE.Mesh(sharedGeometry("player-football-boot", createFootballBootGeometry), bootMaterial);
     bootMesh.name = side < 0 ? "left-boot" : "right-boot";
-    bootMesh.position.set(0, -0.01, 0.13);
-    bootMesh.scale.set(1.08, 1, 1.08);
+    bootMesh.position.set(0, -0.005, 0.145);
+    bootMesh.scale.set(1.16, 1.08, 1.16);
     ankle.add(bootMesh);
     knee.add(kneecap, calf, ankle);
     leg.add(shortsLeg, thigh, knee);
@@ -1752,7 +1752,7 @@ function makeHumanFigure({
   bodyRoot.add(pelvisRoot, torsoRoot);
   if (numberPanel) bodyRoot.add(numberPanel);
   group.add(bodyRoot);
-  group.scale.set(0.9, 0.96, 0.9);
+  group.scale.set(0.94, 0.94, 0.94);
 
   const receiverMaterial = sharedBasicMaterial("#67e8f9");
   receiverMaterial.transparent = true;
@@ -2530,10 +2530,11 @@ function addLightweightStadium(scene: THREE.Scene) {
   const innerWidth = runoffWidth + 0.5;
   const innerLength = runoffLength + 0.5;
   const tiers = [
-    { inset: 0, out: 11.8, height: 2.9, innerRadius: 4.2, outerRadius: 10.5, material: concrete },
-    { inset: 11.6, out: 23.6, height: 5.0, innerRadius: 10.3, outerRadius: 16.5, material: seats },
-    { inset: 23.4, out: 37.2, height: 7.4, innerRadius: 16.3, outerRadius: 23.5, material: darkSeats },
-    { inset: 37.0, out: 43.5, height: 8.8, innerRadius: 23.3, outerRadius: 27.2, material: upperConcrete },
+    { inset: 0, out: 11.8, height: 3.1, innerRadius: 4.2, outerRadius: 10.5, material: concrete },
+    { inset: 11.6, out: 24.8, height: 7.1, innerRadius: 10.3, outerRadius: 17.2, material: seats },
+    { inset: 24.6, out: 39.4, height: 13.6, innerRadius: 17.0, outerRadius: 24.8, material: darkSeats },
+    { inset: 39.2, out: 51.2, height: 20.8, innerRadius: 24.6, outerRadius: 31.2, material: seats },
+    { inset: 51.0, out: 57.4, height: 22.8, innerRadius: 31.0, outerRadius: 34.5, material: upperConcrete },
   ];
   tiers.forEach((tier) => {
     const ring = new THREE.Mesh(
@@ -2551,6 +2552,56 @@ function addLightweightStadium(scene: THREE.Scene) {
     ring.receiveShadow = false;
     stadium.add(ring);
   });
+
+  // A small number of large meshes creates an enclosing upper bowl without
+  // adding crowd draw calls. The roof opening remains well outside the pitch.
+  const upperShell = new THREE.Mesh(
+    stadiumRingGeometry(
+      innerWidth + 50.8,
+      innerLength + 50.8,
+      innerWidth + 61.5,
+      innerLength + 61.5,
+      30.8,
+      36.7,
+      9.2,
+    ),
+    new THREE.MeshLambertMaterial({ color: "#1a2732" }),
+  );
+  upperShell.position.y = 20.8;
+  upperShell.name = "stadium-upper-enclosing-shell";
+  stadium.add(upperShell);
+
+  const roof = new THREE.Mesh(
+    stadiumRingGeometry(
+      innerWidth + 29,
+      innerLength + 29,
+      innerWidth + 63.5,
+      innerLength + 63.5,
+      20.2,
+      37.8,
+      1.15,
+    ),
+    new THREE.MeshLambertMaterial({ color: "#2f3e4d", side: THREE.DoubleSide }),
+  );
+  roof.position.y = 30;
+  roof.name = "stadium-partial-roof-ring";
+  stadium.add(roof);
+
+  const roofFascia = new THREE.Mesh(
+    stadiumRingGeometry(
+      innerWidth + 28.6,
+      innerLength + 28.6,
+      innerWidth + 31.2,
+      innerLength + 31.2,
+      20,
+      21.6,
+      2.4,
+    ),
+    new THREE.MeshLambertMaterial({ color: "#182631" }),
+  );
+  roofFascia.position.y = 28.5;
+  roofFascia.name = "stadium-inner-roof-fascia";
+  stadium.add(roofFascia);
 
   const seatGeometrySideline = new THREE.BoxGeometry(0.82, 0.3, 5.1);
   const seatGeometryEnd = new THREE.BoxGeometry(5.1, 0.3, 0.82);
@@ -2653,6 +2704,8 @@ function addLightweightStadium(scene: THREE.Scene) {
   stadium.add(sidelineStairs, endStairs);
   stadium.userData.seatingRows = sidelineRows + endRows;
   stadium.userData.stairAisles = 10;
+  stadium.userData.maximumHeight = 31.15;
+  stadium.userData.upperTierCount = 3;
 
   scene.add(stadium);
   return adTexture;
@@ -10255,18 +10308,18 @@ function animatePlayer(player: PlayerBody, dt: number) {
   const forwardZ = Math.cos(player.heading);
   const forwardMotion = horizontalSpeed > 0.08 ? (player.vel.x * forwardX + player.vel.z * forwardZ) / horizontalSpeed : 1;
   const lateralMotion = horizontalSpeed > 0.08 ? (player.vel.x * forwardZ - player.vel.z * forwardX) / horizontalSpeed : 0;
-  const gaitRatePerMeter = player.role === "keeper" ? 1.55 : 1.56 + locomotionBlend * 0.38;
+  const gaitRatePerMeter = player.role === "keeper" ? 1.28 : 1.3 + locomotionBlend * 0.28;
   player.runPhase += speed * dt * gaitRatePerMeter;
   const gaitSin = Math.sin(player.runPhase);
   const gaitCos = Math.cos(player.runPhase);
   const directionStrideScale = forwardMotion < -0.15 ? 0.62 : Math.abs(lateralMotion) > 0.65 ? 0.72 : 1;
-  const strideScale = (player.role === "keeper" ? 0.18 + locomotionBlend * 0.2 : 0.26 + locomotionBlend * 0.56) * directionStrideScale;
+  const strideScale = (player.role === "keeper" ? 0.17 + locomotionBlend * 0.23 : 0.24 + locomotionBlend * 0.62) * directionStrideScale;
   const stride = moving ? gaitSin * strideScale : 0;
-  const leftSwingRecovery = Math.max(0, -gaitSin);
-  const rightSwingRecovery = Math.max(0, gaitSin);
-  const leftKneeFlex = moving ? 0.12 + leftSwingRecovery * (0.42 + locomotionBlend * 0.62) : 0.1;
-  const rightKneeFlex = moving ? 0.12 + rightSwingRecovery * (0.42 + locomotionBlend * 0.62) : 0.1;
-  const armSwing = -stride * (0.74 + locomotionBlend * 0.12);
+  const leftSwingRecovery = Math.max(0, gaitSin);
+  const rightSwingRecovery = Math.max(0, -gaitSin);
+  const leftKneeFlex = moving ? 0.08 + leftSwingRecovery * (0.52 + locomotionBlend * 0.68) : 0.08;
+  const rightKneeFlex = moving ? 0.08 + rightSwingRecovery * (0.52 + locomotionBlend * 0.68) : 0.08;
+  const armSwing = -stride * (0.7 + locomotionBlend * 0.18);
   const defensiveShuffle = player.role === "keeper"
     || player.challengeCommitTimer > 0.04
     || (player.blockTimer > 0 && player.forcedMoveTimer <= 0);
@@ -10313,15 +10366,16 @@ function animatePlayer(player: PlayerBody, dt: number) {
     }
   }
   if (pelvis) {
-    pelvis.position.y = defensiveShuffle ? -0.045 : 0;
-    pelvis.rotation.x = moving ? -0.015 * locomotionBlend : 0;
-    pelvis.rotation.y = moving ? gaitSin * (0.03 + locomotionBlend * 0.045) : 0;
-    pelvis.rotation.z = moving ? gaitCos * 0.018 : 0;
+    const pelvisRestY = typeof pelvis.userData.restY === "number" ? pelvis.userData.restY : 1.48;
+    pelvis.position.y = pelvisRestY + (defensiveShuffle ? -0.045 : 0);
+    pelvis.rotation.x = moving ? -0.018 * locomotionBlend : 0;
+    pelvis.rotation.y = moving ? gaitSin * (0.035 + locomotionBlend * 0.05) : 0;
+    pelvis.rotation.z = moving ? gaitCos * 0.022 : 0;
   }
   if (chest) {
-    chest.rotation.x = moving ? -0.025 * locomotionBlend : 0;
-    chest.rotation.y = moving ? -gaitSin * (0.055 + locomotionBlend * 0.05) : 0;
-    chest.rotation.z = moving ? -gaitCos * 0.014 : 0;
+    chest.rotation.x = moving ? -0.03 * locomotionBlend : 0;
+    chest.rotation.y = moving ? -gaitSin * (0.06 + locomotionBlend * 0.055) : 0;
+    chest.rotation.z = moving ? -gaitCos * 0.018 : 0;
   }
   if (neck) neck.rotation.y = moving ? gaitSin * 0.018 : 0;
   if (head) {
@@ -10339,17 +10393,17 @@ function animatePlayer(player: PlayerBody, dt: number) {
   if (leftKnee) leftKnee.rotation.x = leftKneeFlex;
   if (rightKnee) rightKnee.rotation.x = rightKneeFlex;
   if (leftFoot) {
-    const planted = moving && gaitSin > 0.05;
+    const planted = moving && gaitSin < -0.05;
     leftFoot.rotation.x = planted
-      ? clamp(-stride * 0.35, -0.22, 0.18)
-      : clamp(-0.14 + leftKneeFlex * 0.22, -0.14, 0.2);
+      ? clamp(-stride * 0.3, -0.2, 0.16)
+      : clamp(-0.16 + leftKneeFlex * 0.3, -0.16, 0.25);
     leftFoot.rotation.y = 0;
   }
   if (rightFoot) {
-    const planted = moving && gaitSin < -0.05;
+    const planted = moving && gaitSin > 0.05;
     rightFoot.rotation.x = planted
-      ? clamp(stride * 0.35, -0.22, 0.18)
-      : clamp(-0.14 + rightKneeFlex * 0.22, -0.14, 0.2);
+      ? clamp(stride * 0.3, -0.2, 0.16)
+      : clamp(-0.16 + rightKneeFlex * 0.3, -0.16, 0.25);
     rightFoot.rotation.y = 0;
   }
   if (leftArm) {
