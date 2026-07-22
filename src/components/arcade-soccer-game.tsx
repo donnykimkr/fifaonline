@@ -2407,6 +2407,56 @@ function createAdvertisingCornerSolidGeometry(
   return geometry;
 }
 
+function createStadiumSeatGeometry() {
+  const halfWidth = 0.43;
+  const halfDepth = 0.27;
+  const positions = [
+    // Seat pan.
+    -halfWidth, 0.32, -halfDepth,
+    halfWidth, 0.32, -halfDepth,
+    halfWidth, 0.32, halfDepth,
+    -halfWidth, 0.32, halfDepth,
+    // Reclined seat back.
+    -halfWidth, 0.32, halfDepth,
+    halfWidth, 0.32, halfDepth,
+    halfWidth, 1.02, halfDepth + 0.12,
+    -halfWidth, 1.02, halfDepth + 0.12,
+    // Front fascia, visible from the pitch on lower rows.
+    -halfWidth, 0.16, -halfDepth,
+    halfWidth, 0.16, -halfDepth,
+    halfWidth, 0.32, -halfDepth,
+    -halfWidth, 0.32, -halfDepth,
+  ];
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex([
+    0, 1, 2, 0, 2, 3,
+    4, 5, 6, 4, 6, 7,
+    8, 9, 10, 8, 10, 11,
+  ]);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+type StadiumDeck = {
+  startOffset: number;
+  startY: number;
+  rows: number;
+  rowDepth: number;
+  rowRise: number;
+};
+
+type StadiumSeatPlacement = {
+  position: THREE.Vector3;
+  rotationY: number;
+  color: string;
+};
+
+function stadiumSeatHeading(position: THREE.Vector3) {
+  const towardPitch = position.clone().setY(0).multiplyScalar(-1);
+  return Math.atan2(-towardPitch.x, -towardPitch.z);
+}
+
 function addLightweightStadium(scene: THREE.Scene) {
   const stadium = new THREE.Group();
   stadium.name = "lightweight-stadium";
@@ -2525,16 +2575,14 @@ function addLightweightStadium(scene: THREE.Scene) {
 
   const concrete = new THREE.MeshLambertMaterial({ color: "#344553" });
   const upperConcrete = new THREE.MeshLambertMaterial({ color: "#263641" });
-  const seats = new THREE.MeshLambertMaterial({ color: "#1b8090" });
-  const darkSeats = new THREE.MeshLambertMaterial({ color: "#155f70" });
   const innerWidth = runoffWidth + 0.5;
   const innerLength = runoffLength + 0.5;
   const tiers = [
-    { inset: 0, out: 11.8, height: 3.1, innerRadius: 4.2, outerRadius: 10.5, material: concrete },
-    { inset: 11.6, out: 24.8, height: 7.1, innerRadius: 10.3, outerRadius: 17.2, material: seats },
-    { inset: 24.6, out: 39.4, height: 13.6, innerRadius: 17.0, outerRadius: 24.8, material: darkSeats },
-    { inset: 39.2, out: 51.2, height: 20.8, innerRadius: 24.6, outerRadius: 31.2, material: seats },
-    { inset: 51.0, out: 57.4, height: 22.8, innerRadius: 31.0, outerRadius: 34.5, material: upperConcrete },
+    { inset: 0, out: 5.7, height: 3, innerRadius: 4.2, outerRadius: 7.4, material: concrete },
+    { inset: 16.8, out: 18.15, height: 7.75, innerRadius: 12.2, outerRadius: 13.1, material: upperConcrete },
+    { inset: 28.25, out: 29.65, height: 13.75, innerRadius: 18.6, outerRadius: 19.5, material: concrete },
+    { inset: 40.4, out: 42.2, height: 20.45, innerRadius: 25.2, outerRadius: 26.3, material: upperConcrete },
+    { inset: 42.0, out: 57.4, height: 22.8, innerRadius: 26.1, outerRadius: 34.5, material: upperConcrete },
   ];
   tiers.forEach((tier) => {
     const ring = new THREE.Mesh(
@@ -2553,17 +2601,17 @@ function addLightweightStadium(scene: THREE.Scene) {
     stadium.add(ring);
   });
 
-  // A small number of large meshes creates an enclosing upper bowl without
-  // adding crowd draw calls. The roof opening remains well outside the pitch.
+  // The shell keeps the bowl visually enclosed. The roof begins beyond the
+  // camera-side shell so its inner edge cannot mask the near touchline.
   const upperShell = new THREE.Mesh(
     stadiumRingGeometry(
       innerWidth + 50.8,
       innerLength + 50.8,
-      innerWidth + 61.5,
-      innerLength + 61.5,
+      innerWidth + 64.5,
+      innerLength + 64.5,
       30.8,
-      36.7,
-      9.2,
+      38.4,
+      13.8,
     ),
     new THREE.MeshLambertMaterial({ color: "#1a2732" }),
   );
@@ -2573,138 +2621,174 @@ function addLightweightStadium(scene: THREE.Scene) {
 
   const roof = new THREE.Mesh(
     stadiumRingGeometry(
-      innerWidth + 29,
-      innerLength + 29,
-      innerWidth + 63.5,
-      innerLength + 63.5,
-      20.2,
-      37.8,
-      1.15,
+      innerWidth + 61,
+      innerLength + 61,
+      innerWidth + 68,
+      innerLength + 68,
+      36.2,
+      40.4,
+      0.9,
     ),
     new THREE.MeshLambertMaterial({ color: "#2f3e4d", side: THREE.DoubleSide }),
   );
-  roof.position.y = 30;
+  roof.position.y = 36.2;
   roof.name = "stadium-partial-roof-ring";
   stadium.add(roof);
 
   const roofFascia = new THREE.Mesh(
     stadiumRingGeometry(
-      innerWidth + 28.6,
-      innerLength + 28.6,
-      innerWidth + 31.2,
-      innerLength + 31.2,
-      20,
-      21.6,
-      2.4,
+      innerWidth + 59.8,
+      innerLength + 59.8,
+      innerWidth + 62.2,
+      innerLength + 62.2,
+      35.4,
+      37.1,
+      2.2,
     ),
     new THREE.MeshLambertMaterial({ color: "#182631" }),
   );
-  roofFascia.position.y = 28.5;
+  roofFascia.position.y = 34;
   roofFascia.name = "stadium-inner-roof-fascia";
   stadium.add(roofFascia);
 
-  const seatGeometrySideline = new THREE.BoxGeometry(0.82, 0.3, 5.1);
-  const seatGeometryEnd = new THREE.BoxGeometry(5.1, 0.3, 0.82);
-  const seatMaterial = new THREE.MeshLambertMaterial({ color: "#1fa1b6" });
-  const sidelineRows = 11;
-  const endRows = 9;
-  const sidelineSegments = Math.max(12, Math.floor((runoffLength - 12) / 5.7));
-  const endSegments = Math.max(10, Math.floor((runoffWidth - 12) / 5.7));
-  const sidelineSeatCount = 2 * sidelineRows * sidelineSegments;
-  const endSeatCount = 2 * endRows * endSegments;
-  const sidelineSeats = new THREE.InstancedMesh(seatGeometrySideline, seatMaterial, sidelineSeatCount);
-  const endSeats = new THREE.InstancedMesh(seatGeometryEnd, seatMaterial, endSeatCount);
-  const seatMatrix = new THREE.Matrix4();
-  const seatColor = new THREE.Color();
-  let sidelineSeatIndex = 0;
-  for (const side of [-1, 1]) {
-    for (let row = 0; row < sidelineRows; row += 1) {
-      const x = side * (runoffWidth / 2 + 6.1 + row * 1.22);
-      const y = 3.05 + row * 0.42;
-      for (let segment = 0; segment < sidelineSegments; segment += 1) {
-        const normalized = (segment + 0.5) / sidelineSegments;
-        if ([0.25, 0.5, 0.75].some((aisle) => Math.abs(normalized - aisle) < 0.032)) continue;
-        const z = -runoffLength / 2 + 6 + normalized * (runoffLength - 12);
-        seatMatrix.makeTranslation(x, y, z);
-        sidelineSeats.setMatrixAt(sidelineSeatIndex, seatMatrix);
-        seatColor.set((row + segment) % 3 === 0 ? "#16788a" : "#24a9bd");
-        sidelineSeats.setColorAt(sidelineSeatIndex, seatColor);
-        sidelineSeatIndex += 1;
-      }
-    }
-  }
-  sidelineSeats.count = sidelineSeatIndex;
-  sidelineSeats.name = "stadium-seat-rows-sideline";
-  sidelineSeats.instanceMatrix.needsUpdate = true;
-  if (sidelineSeats.instanceColor) sidelineSeats.instanceColor.needsUpdate = true;
-  stadium.add(sidelineSeats);
+  const decks: StadiumDeck[] = [
+    { startOffset: 5.8, startY: 3.08, rows: 11, rowDepth: 1.08, rowRise: 0.42 },
+    { startOffset: 18.2, startY: 8.05, rows: 9, rowDepth: 1.12, rowRise: 0.49 },
+    { startOffset: 29.6, startY: 14.05, rows: 11, rowDepth: 1.08, rowRise: 0.55 },
+  ];
+  const sidelineAisles = [-0.33, -0.11, 0.11, 0.33].map((value) => value * runoffLength);
+  const endAisles = [-0.27, 0, 0.27].map((value) => value * runoffWidth);
+  const seatPlacements: StadiumSeatPlacement[] = [];
+  const seatSpacing = 1.02;
+  const seatColors = ["#17798b", "#1f95a8", "#29aec0", "#166b7d"];
+  const addSeat = (position: THREE.Vector3, deckIndex: number, sectionIndex: number) => {
+    seatPlacements.push({
+      position,
+      rotationY: stadiumSeatHeading(position),
+      color: seatColors[(deckIndex * 2 + sectionIndex) % seatColors.length],
+    });
+  };
 
-  let endSeatIndex = 0;
-  for (const side of [-1, 1]) {
-    for (let row = 0; row < endRows; row += 1) {
-      const z = side * (runoffLength / 2 + 6.1 + row * 1.22);
-      const y = 3.05 + row * 0.42;
-      for (let segment = 0; segment < endSegments; segment += 1) {
-        const normalized = (segment + 0.5) / endSegments;
-        if ([0.3, 0.7].some((aisle) => Math.abs(normalized - aisle) < 0.04)) continue;
-        const x = -runoffWidth / 2 + 6 + normalized * (runoffWidth - 12);
-        seatMatrix.makeTranslation(x, y, z);
-        endSeats.setMatrixAt(endSeatIndex, seatMatrix);
-        seatColor.set((row + segment) % 3 === 0 ? "#155f70" : "#2096aa");
-        endSeats.setColorAt(endSeatIndex, seatColor);
-        endSeatIndex += 1;
+  decks.forEach((deck, deckIndex) => {
+    for (let row = 0; row < deck.rows; row += 1) {
+      const rowOffset = deck.startOffset + row * deck.rowDepth;
+      const y = deck.startY + row * deck.rowRise;
+      const sideLimit = runoffLength / 2 - 7.2;
+      const sideSeatCount = Math.floor(sideLimit * 2 / seatSpacing);
+      for (const side of [-1, 1]) {
+        for (let index = 0; index <= sideSeatCount; index += 1) {
+          const z = -sideLimit + index * seatSpacing;
+          if (sidelineAisles.some((aisle) => Math.abs(z - aisle) < 0.84)) continue;
+          const sectionIndex = sidelineAisles.filter((aisle) => aisle < z).length;
+          addSeat(new THREE.Vector3(side * (runoffWidth / 2 + rowOffset), y, z), deckIndex, sectionIndex);
+        }
       }
-    }
-  }
-  endSeats.count = endSeatIndex;
-  endSeats.name = "stadium-seat-rows-end";
-  endSeats.instanceMatrix.needsUpdate = true;
-  if (endSeats.instanceColor) endSeats.instanceColor.needsUpdate = true;
-  stadium.add(endSeats);
 
-  const stairMaterial = new THREE.MeshLambertMaterial({ color: "#c9d4d8" });
-  const sidelineStairGeometry = new THREE.BoxGeometry(1.06, 0.16, 1.68);
-  const endStairGeometry = new THREE.BoxGeometry(1.68, 0.16, 1.06);
-  const sidelineStairCount = 2 * sidelineRows * 3;
-  const endStairCount = 2 * endRows * 2;
-  const sidelineStairs = new THREE.InstancedMesh(sidelineStairGeometry, stairMaterial, sidelineStairCount);
-  const endStairs = new THREE.InstancedMesh(endStairGeometry, stairMaterial, endStairCount);
-  let sidelineStairIndex = 0;
-  for (const side of [-1, 1]) {
-    for (let row = 0; row < sidelineRows; row += 1) {
-      for (const aisle of [-0.25, 0, 0.25]) {
-        seatMatrix.makeTranslation(
-          side * (runoffWidth / 2 + 6.05 + row * 1.22),
-          3.18 + row * 0.42,
-          aisle * runoffLength,
-        );
-        sidelineStairs.setMatrixAt(sidelineStairIndex, seatMatrix);
-        sidelineStairIndex += 1;
+      const endLimit = runoffWidth / 2 - 7.2;
+      const endSeatCount = Math.floor(endLimit * 2 / seatSpacing);
+      for (const side of [-1, 1]) {
+        for (let index = 0; index <= endSeatCount; index += 1) {
+          const x = -endLimit + index * seatSpacing;
+          if (endAisles.some((aisle) => Math.abs(x - aisle) < 0.84)) continue;
+          const sectionIndex = endAisles.filter((aisle) => aisle < x).length;
+          addSeat(new THREE.Vector3(x, y, side * (runoffLength / 2 + rowOffset)), deckIndex, sectionIndex + 1);
+        }
+      }
+
+      const cornerCenterX = runoffWidth / 2 - 7.2;
+      const cornerCenterZ = runoffLength / 2 - 7.2;
+      const cornerRadius = rowOffset + 7.2;
+      const cornerSeatCount = Math.max(8, Math.floor(Math.PI * cornerRadius / (2 * seatSpacing)));
+      for (const xSide of [-1, 1]) {
+        for (const zSide of [-1, 1]) {
+          for (let index = 1; index < cornerSeatCount; index += 1) {
+            const angle = index / cornerSeatCount * Math.PI / 2;
+            if (Math.abs(angle - Math.PI / 4) * cornerRadius < 0.86) continue;
+            const position = new THREE.Vector3(
+              xSide * (cornerCenterX + Math.cos(angle) * cornerRadius),
+              y,
+              zSide * (cornerCenterZ + Math.sin(angle) * cornerRadius),
+            );
+            addSeat(position, deckIndex, index < cornerSeatCount / 2 ? 2 : 3);
+          }
+        }
       }
     }
-  }
-  let endStairIndex = 0;
-  for (const side of [-1, 1]) {
-    for (let row = 0; row < endRows; row += 1) {
-      for (const aisle of [-0.2, 0.2]) {
-        seatMatrix.makeTranslation(
-          aisle * runoffWidth,
-          3.18 + row * 0.42,
-          side * (runoffLength / 2 + 6.05 + row * 1.22),
-        );
-        endStairs.setMatrixAt(endStairIndex, seatMatrix);
-        endStairIndex += 1;
+  });
+
+  const seatMaterial = new THREE.MeshLambertMaterial({ color: "#ffffff", side: THREE.DoubleSide });
+  const stadiumSeats = new THREE.InstancedMesh(createStadiumSeatGeometry(), seatMaterial, seatPlacements.length);
+  const instanceMatrix = new THREE.Matrix4();
+  const instanceQuaternion = new THREE.Quaternion();
+  const instanceScale = new THREE.Vector3(1, 1, 1);
+  const instanceColor = new THREE.Color();
+  seatPlacements.forEach((seat, index) => {
+    instanceQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), seat.rotationY);
+    instanceMatrix.compose(seat.position, instanceQuaternion, instanceScale);
+    stadiumSeats.setMatrixAt(index, instanceMatrix);
+    stadiumSeats.setColorAt(index, instanceColor.set(seat.color));
+  });
+  stadiumSeats.name = "stadium-individual-seat-rows";
+  stadiumSeats.instanceMatrix.needsUpdate = true;
+  if (stadiumSeats.instanceColor) stadiumSeats.instanceColor.needsUpdate = true;
+  stadiumSeats.castShadow = false;
+  stadiumSeats.receiveShadow = false;
+  stadium.add(stadiumSeats);
+
+  const stairPlacements: Array<{ position: THREE.Vector3; scale: THREE.Vector3; rotationY: number }> = [];
+  decks.forEach((deck) => {
+    for (let row = 0; row < deck.rows; row += 1) {
+      const rowOffset = deck.startOffset + row * deck.rowDepth;
+      const y = deck.startY + row * deck.rowRise + 0.05;
+      for (const side of [-1, 1]) {
+        sidelineAisles.forEach((z) => stairPlacements.push({
+          position: new THREE.Vector3(side * (runoffWidth / 2 + rowOffset), y, z),
+          scale: new THREE.Vector3(deck.rowDepth * 0.96, 0.16, 1.52),
+          rotationY: 0,
+        }));
+        endAisles.forEach((x) => stairPlacements.push({
+          position: new THREE.Vector3(x, y, side * (runoffLength / 2 + rowOffset)),
+          scale: new THREE.Vector3(1.52, 0.16, deck.rowDepth * 0.96),
+          rotationY: 0,
+        }));
+      }
+      const cornerCenterX = runoffWidth / 2 - 7.2;
+      const cornerCenterZ = runoffLength / 2 - 7.2;
+      const cornerRadius = rowOffset + 7.2;
+      for (const xSide of [-1, 1]) {
+        for (const zSide of [-1, 1]) {
+          const angle = Math.PI / 4;
+          const position = new THREE.Vector3(
+            xSide * (cornerCenterX + Math.cos(angle) * cornerRadius),
+            y,
+            zSide * (cornerCenterZ + Math.sin(angle) * cornerRadius),
+          );
+          stairPlacements.push({
+            position,
+            scale: new THREE.Vector3(1.52, 0.16, deck.rowDepth * 0.96),
+            rotationY: xSide * zSide * -Math.PI / 4,
+          });
+        }
       }
     }
-  }
-  sidelineStairs.name = "stadium-stair-aisles-sideline";
-  endStairs.name = "stadium-stair-aisles-end";
-  sidelineStairs.instanceMatrix.needsUpdate = true;
-  endStairs.instanceMatrix.needsUpdate = true;
-  stadium.add(sidelineStairs, endStairs);
-  stadium.userData.seatingRows = sidelineRows + endRows;
-  stadium.userData.stairAisles = 10;
-  stadium.userData.maximumHeight = 31.15;
+  });
+  const stairMaterial = new THREE.MeshLambertMaterial({ color: "#d2dadd" });
+  const stadiumStairs = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), stairMaterial, stairPlacements.length);
+  stairPlacements.forEach((step, index) => {
+    instanceQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), step.rotationY);
+    instanceMatrix.compose(step.position, instanceQuaternion, step.scale);
+    stadiumStairs.setMatrixAt(index, instanceMatrix);
+  });
+  stadiumStairs.name = "stadium-integrated-stair-aisles";
+  stadiumStairs.instanceMatrix.needsUpdate = true;
+  stadiumStairs.castShadow = false;
+  stadiumStairs.receiveShadow = false;
+  stadium.add(stadiumStairs);
+
+  stadium.userData.seatingRows = decks.reduce((sum, deck) => sum + deck.rows, 0);
+  stadium.userData.seatCount = seatPlacements.length;
+  stadium.userData.stairAisles = sidelineAisles.length * 2 + endAisles.length * 2 + 4;
+  stadium.userData.maximumHeight = 37.1;
   stadium.userData.upperTierCount = 3;
 
   scene.add(stadium);
@@ -10301,28 +10385,55 @@ function updateStuckState(player: PlayerBody, intent: THREE.Vector3, active: Mat
 
 function animatePlayer(player: PlayerBody, dt: number) {
   const speed = Math.max(player.vel.length(), player.animationSpeed);
-  const moving = speed > 0.18;
-  const locomotionBlend = clamp((speed - 0.18) / 8.5, 0, 1);
+  const moving = speed > 0.14;
+  const locomotionBlend = clamp((speed - 0.14) / 8.7, 0, 1);
+  const jogBlend = clamp((speed - 1.1) / 3.7, 0, 1);
+  const sprintBlend = clamp((speed - 5.1) / 3.7, 0, 1);
   const horizontalSpeed = Math.hypot(player.vel.x, player.vel.z);
   const forwardX = Math.sin(player.heading);
   const forwardZ = Math.cos(player.heading);
   const forwardMotion = horizontalSpeed > 0.08 ? (player.vel.x * forwardX + player.vel.z * forwardZ) / horizontalSpeed : 1;
   const lateralMotion = horizontalSpeed > 0.08 ? (player.vel.x * forwardZ - player.vel.z * forwardX) / horizontalSpeed : 0;
-  const gaitRatePerMeter = player.role === "keeper" ? 1.28 : 1.3 + locomotionBlend * 0.28;
-  player.runPhase += speed * dt * gaitRatePerMeter;
-  const gaitSin = Math.sin(player.runPhase);
-  const gaitCos = Math.cos(player.runPhase);
-  const directionStrideScale = forwardMotion < -0.15 ? 0.62 : Math.abs(lateralMotion) > 0.65 ? 0.72 : 1;
-  const strideScale = (player.role === "keeper" ? 0.17 + locomotionBlend * 0.23 : 0.24 + locomotionBlend * 0.62) * directionStrideScale;
-  const stride = moving ? gaitSin * strideScale : 0;
-  const leftSwingRecovery = Math.max(0, gaitSin);
-  const rightSwingRecovery = Math.max(0, -gaitSin);
-  const leftKneeFlex = moving ? 0.08 + leftSwingRecovery * (0.52 + locomotionBlend * 0.68) : 0.08;
-  const rightKneeFlex = moving ? 0.08 + rightSwingRecovery * (0.52 + locomotionBlend * 0.68) : 0.08;
-  const armSwing = -stride * (0.7 + locomotionBlend * 0.18);
+  const carryingBall = player.carryTimer > 0.035;
   const defensiveShuffle = player.role === "keeper"
     || player.challengeCommitTimer > 0.04
-    || (player.blockTimer > 0 && player.forcedMoveTimer <= 0);
+    || (player.blockTimer > 0 && player.forcedMoveTimer <= 0)
+    || (Math.abs(lateralMotion) > 0.58 && forwardMotion < 0.72 && speed < 6.4);
+  const shuffleBlend = defensiveShuffle ? clamp((Math.abs(lateralMotion) - 0.24) / 0.7, 0.35, 1) : 0;
+  const gaitRatePerMeter = player.role === "keeper"
+    ? 1.04 + locomotionBlend * 0.12
+    : 1.08 + jogBlend * 0.08 + sprintBlend * 0.12;
+  player.runPhase += moving ? speed * dt * gaitRatePerMeter : dt * 0.72;
+  const gaitSin = Math.sin(player.runPhase);
+  const gaitCos = Math.cos(player.runPhase);
+  const gaitDouble = Math.sin(player.runPhase * 2);
+  const directionStrideScale = forwardMotion < -0.15 ? 0.58 : Math.abs(lateralMotion) > 0.65 ? 0.68 : 1;
+  const ballControlStride = carryingBall ? 0.86 : 1;
+  const strideScale = (player.role === "keeper"
+    ? 0.18 + jogBlend * 0.2
+    : 0.28 + jogBlend * 0.24 + sprintBlend * 0.34)
+    * directionStrideScale
+    * ballControlStride
+    * (1 - shuffleBlend * 0.28);
+  const stride = moving ? gaitSin * strideScale : 0;
+  const leftRecovery = Math.max(0, gaitSin);
+  const rightRecovery = Math.max(0, -gaitSin);
+  const leftPushOff = Math.max(0, -gaitCos);
+  const rightPushOff = Math.max(0, gaitCos);
+  const kneeBase = defensiveShuffle ? 0.2 : moving ? 0.1 : 0.12;
+  const recoveryFlex = 0.48 + jogBlend * 0.28 + sprintBlend * 0.46;
+  const pushFlex = 0.08 + sprintBlend * 0.13;
+  const leftKneeFlex = kneeBase + leftRecovery * recoveryFlex + leftPushOff * pushFlex;
+  const rightKneeFlex = kneeBase + rightRecovery * recoveryFlex + rightPushOff * pushFlex;
+  const armAmplitude = (0.34 + jogBlend * 0.24 + sprintBlend * 0.34) * (carryingBall ? 0.88 : 1);
+  const leftArmSwing = moving ? -gaitSin * armAmplitude : 0;
+  const rightArmSwing = -leftArmSwing;
+  const turnLean = clamp(player.turnRate * -0.022, -0.14, 0.14);
+  const accelerationEffort = clamp((player.animationSpeed - horizontalSpeed) / 3.2, 0, 1);
+  const forwardLean = moving && player.role !== "keeper"
+    ? -(0.025 + jogBlend * 0.04 + sprintBlend * 0.075 + accelerationEffort * 0.025)
+    : defensiveShuffle ? -0.045 : 0;
+  const idleBreath = moving ? 0 : Math.sin(player.runPhase) * 0.006;
   const {
     bodyRoot,
     pelvis,
@@ -10341,15 +10452,18 @@ function animatePlayer(player: PlayerBody, dt: number) {
     rightElbow,
   } = player.parts;
   if (bodyRoot) {
-    const turnLean = clamp(player.turnRate * -0.018, -0.11, 0.11);
-    bodyRoot.position.x = moving ? gaitCos * (player.role === "keeper" ? 0.008 : 0.014) : 0;
-    bodyRoot.position.y = moving ? Math.abs(Math.sin(player.runPhase * 2)) * (0.012 + locomotionBlend * 0.018) : 0;
+    bodyRoot.position.x = moving
+      ? gaitCos * (player.role === "keeper" ? 0.01 : 0.012 + sprintBlend * 0.008) + lateralMotion * 0.012
+      : 0;
+    bodyRoot.position.y = moving
+      ? Math.abs(gaitDouble) * (0.01 + jogBlend * 0.01 + sprintBlend * 0.01)
+      : idleBreath;
     bodyRoot.position.z = 0;
-    bodyRoot.rotation.x = moving && player.role !== "keeper"
-      ? (forwardMotion < -0.15 ? 0.025 : -0.035 - locomotionBlend * 0.075)
-      : defensiveShuffle ? -0.045 : 0;
-    bodyRoot.rotation.y = 0;
-    bodyRoot.rotation.z = moving ? gaitCos * 0.018 + turnLean - lateralMotion * 0.045 : 0;
+    bodyRoot.rotation.x = forwardMotion < -0.15 ? 0.025 : forwardLean;
+    bodyRoot.rotation.y = moving ? gaitSin * 0.018 * (1 - shuffleBlend) : 0;
+    bodyRoot.rotation.z = moving
+      ? gaitCos * (0.012 + sprintBlend * 0.012) + turnLean - lateralMotion * (0.025 + shuffleBlend * 0.035)
+      : 0;
     if (player.celebrateTimer > 0) {
       bodyRoot.position.y += Math.max(0, Math.sin(player.celebrateTimer * 14)) * 0.16;
       bodyRoot.rotation.z += Math.sin(player.celebrateTimer * 10) * 0.18;
@@ -10367,55 +10481,60 @@ function animatePlayer(player: PlayerBody, dt: number) {
   }
   if (pelvis) {
     const pelvisRestY = typeof pelvis.userData.restY === "number" ? pelvis.userData.restY : 1.48;
-    pelvis.position.y = pelvisRestY + (defensiveShuffle ? -0.045 : 0);
-    pelvis.rotation.x = moving ? -0.018 * locomotionBlend : 0;
-    pelvis.rotation.y = moving ? gaitSin * (0.035 + locomotionBlend * 0.05) : 0;
-    pelvis.rotation.z = moving ? gaitCos * 0.022 : 0;
+    pelvis.position.y = pelvisRestY + (defensiveShuffle ? -0.055 : 0) + idleBreath * 0.35;
+    pelvis.rotation.x = moving ? -0.014 * jogBlend : 0;
+    pelvis.rotation.y = moving ? gaitSin * (0.035 + jogBlend * 0.035 + sprintBlend * 0.025) : 0;
+    pelvis.rotation.z = moving ? gaitCos * (0.014 + sprintBlend * 0.018) + turnLean * 0.32 : 0;
   }
   if (chest) {
-    chest.rotation.x = moving ? -0.03 * locomotionBlend : 0;
-    chest.rotation.y = moving ? -gaitSin * (0.06 + locomotionBlend * 0.055) : 0;
-    chest.rotation.z = moving ? -gaitCos * 0.018 : 0;
+    chest.rotation.x = moving ? -0.018 * jogBlend - sprintBlend * 0.024 : idleBreath * 0.8;
+    chest.rotation.y = moving ? -gaitSin * (0.055 + jogBlend * 0.045 + sprintBlend * 0.035) : 0;
+    chest.rotation.z = moving ? -gaitCos * (0.012 + sprintBlend * 0.012) - turnLean * 0.2 : 0;
   }
-  if (neck) neck.rotation.y = moving ? gaitSin * 0.018 : 0;
+  if (neck) {
+    neck.rotation.x = moving ? -forwardLean * 0.18 : 0;
+    neck.rotation.y = moving ? gaitSin * 0.016 : 0;
+    neck.rotation.z = moving ? -turnLean * 0.18 : 0;
+  }
   if (head) {
-    head.rotation.x = moving ? Math.sin(player.runPhase * 2) * 0.012 : 0;
-    head.rotation.y = moving ? gaitSin * 0.015 : 0;
+    head.rotation.x = moving ? gaitDouble * 0.007 - forwardLean * 0.1 : 0;
+    head.rotation.y = moving ? gaitSin * 0.012 : 0;
+    head.rotation.z = moving ? -turnLean * 0.22 : 0;
   }
   if (leftLeg) {
     leftLeg.rotation.x = stride;
-    leftLeg.rotation.z = defensiveShuffle ? -0.07 : 0;
+    leftLeg.rotation.z = defensiveShuffle ? -0.09 - shuffleBlend * 0.04 : turnLean * -0.05;
   }
   if (rightLeg) {
     rightLeg.rotation.x = -stride;
-    rightLeg.rotation.z = defensiveShuffle ? 0.07 : 0;
+    rightLeg.rotation.z = defensiveShuffle ? 0.09 + shuffleBlend * 0.04 : turnLean * -0.05;
   }
   if (leftKnee) leftKnee.rotation.x = leftKneeFlex;
   if (rightKnee) rightKnee.rotation.x = rightKneeFlex;
   if (leftFoot) {
-    const planted = moving && gaitSin < -0.05;
-    leftFoot.rotation.x = planted
-      ? clamp(-stride * 0.3, -0.2, 0.16)
-      : clamp(-0.16 + leftKneeFlex * 0.3, -0.16, 0.25);
+    const leftSwinging = moving && gaitSin > 0.04;
+    leftFoot.rotation.x = leftSwinging
+      ? clamp(-0.2 + leftKneeFlex * 0.34, -0.18, 0.3)
+      : clamp(-stride * 0.24 - sprintBlend * 0.06, -0.22, 0.16);
     leftFoot.rotation.y = 0;
   }
   if (rightFoot) {
-    const planted = moving && gaitSin > 0.05;
-    rightFoot.rotation.x = planted
-      ? clamp(stride * 0.3, -0.2, 0.16)
-      : clamp(-0.16 + rightKneeFlex * 0.3, -0.16, 0.25);
+    const rightSwinging = moving && gaitSin < -0.04;
+    rightFoot.rotation.x = rightSwinging
+      ? clamp(-0.2 + rightKneeFlex * 0.34, -0.18, 0.3)
+      : clamp(stride * 0.24 - sprintBlend * 0.06, -0.22, 0.16);
     rightFoot.rotation.y = 0;
   }
   if (leftArm) {
-    leftArm.rotation.x = armSwing;
-    leftArm.rotation.z = -0.11 + (moving ? gaitSin * 0.018 : 0);
+    leftArm.rotation.x = leftArmSwing;
+    leftArm.rotation.z = -0.11 - (carryingBall ? 0.06 : 0) - shuffleBlend * 0.17 + (moving ? gaitSin * 0.012 : 0);
   }
   if (rightArm) {
-    rightArm.rotation.x = -armSwing;
-    rightArm.rotation.z = 0.11 - (moving ? gaitSin * 0.018 : 0);
+    rightArm.rotation.x = rightArmSwing;
+    rightArm.rotation.z = 0.11 + (carryingBall ? 0.06 : 0) + shuffleBlend * 0.17 - (moving ? gaitSin * 0.012 : 0);
   }
-  if (leftElbow) leftElbow.rotation.x = 0.58 + locomotionBlend * 0.28 + Math.max(0, -armSwing) * 0.24;
-  if (rightElbow) rightElbow.rotation.x = 0.58 + locomotionBlend * 0.28 + Math.max(0, armSwing) * 0.24;
+  if (leftElbow) leftElbow.rotation.x = 0.52 + jogBlend * 0.2 + sprintBlend * 0.2 + Math.max(0, -leftArmSwing) * 0.18;
+  if (rightElbow) rightElbow.rotation.x = 0.52 + jogBlend * 0.2 + sprintBlend * 0.2 + Math.max(0, -rightArmSwing) * 0.18;
 
   if (player.role === "keeper" && player.catchTimer <= 0 && player.diveTimer <= 0 && player.keeperAction === "none") {
     if (bodyRoot) bodyRoot.rotation.x -= 0.055;
