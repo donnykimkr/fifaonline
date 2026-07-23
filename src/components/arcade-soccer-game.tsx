@@ -15273,7 +15273,9 @@ function takePossession(player: PlayerBody, active: MatchRuntime, verifiedFirstT
   const contactDistance = player.pos.distanceTo(flatBall);
   const restrictedBackPass = player.role === "keeper" && deliberateFootBackPassRestriction(player, active);
   const legalKeeperHands = player.role === "keeper" && keeperMayUseHands(player, active);
-  const maximumContactDistance = legalKeeperHands
+  const maximumContactDistance = restrictedBackPass
+    ? Math.max(1.28, playerBallContactRadius(player, active.ballPos.y) + 0.3)
+    : legalKeeperHands
     ? active.ballPos.y > 1.35 ? 2.5 : 2.25
     : verifiedFirstTouch
       ? 1.36
