@@ -70,6 +70,17 @@ The app generates a `visitor_id` with `crypto.randomUUID()` on first visit and s
 
 Mobile and iPad controls show a joystick plus action buttons for Switch, Kick, Fullscreen, and AI ON/OFF.
 
+## Audio Sources And Licensing
+
+Futbol does not ship ripped broadcast, FIFA, eFootball, or third-party stadium audio.
+
+- Crowd ambience and match reactions are generated at runtime with the browser Web Audio API from synthesized noise and tones.
+- Commentary uses original generic lines defined in the game and the browser's built-in Speech Synthesis voice.
+- Source URL: none; the audio is generated locally in the browser.
+- License/attribution: original project code and text, with no external audio attribution required.
+
+Audio begins only after the player presses Kickoff. Crowd and commentary volumes are controlled separately in Formation & Match Settings, and all active audio sources are stopped when a match resets.
+
 ## Connect Supabase To Vercel
 
 1. Create or open a Supabase project.

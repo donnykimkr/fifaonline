@@ -31,7 +31,18 @@ type DefensiveDangerPhase = "NORMAL_BLOCK" | "DEEP_BLOCK" | "EMERGENCY_GOAL_DEFE
 type FirstTouchType = "foot" | "thigh" | "chest";
 type BallBoundaryState = "IN_PLAY" | "TOUCHLINE_OUT" | "GOAL_LINE_OUT" | "GOAL";
 type TutorialStatus = "active" | "success" | "complete";
-type StrikerProfile = "default" | "haaland";
+type PlayerProfile = "default"
+  | "haaland"
+  | "courtois"
+  | "vitinha"
+  | "pedri"
+  | "salah"
+  | "rodri"
+  | "bellingham"
+  | "ronaldo"
+  | "messi"
+  | "cristiano-ronaldo"
+  | "ronaldinho";
 type LocomotionState = "idle" | "walk" | "jog" | "run" | "sprint" | "acceleration" | "deceleration"
   | "sharp-turn" | "lateral-shuffle" | "backpedal" | "dribble-jog" | "dribble-sprint"
   | "pass-approach" | "shot-approach" | "recovery";
@@ -95,7 +106,7 @@ type PlayerBody = {
   aimArrow: THREE.Object3D | null;
   possessionLabel: THREE.Object3D | null;
   parts: PlayerAnimationParts;
-  profile: StrikerProfile;
+  profile: PlayerProfile;
   preferredFoot: "left" | "right";
   heading: number;
   turnRate: number;
@@ -223,7 +234,9 @@ type FormationKey = "4-2-3-1" | "4-3-3" | "4-4-2" | "3-5-2";
 type OfflineSettings = {
   formation: Extract<FormationKey, "4-3-3" | "4-4-2">;
   homeColor: string;
-  selectedPlayersBySlot: Record<string, StrikerProfile>;
+  selectedPlayersBySlot: Record<string, PlayerProfile>;
+  crowdVolume: number;
+  commentaryVolume: number;
 };
 
 type TutorialLessonDefinition = {
@@ -370,6 +383,10 @@ type MatchRuntime = {
   audio: AudioContext | null;
   activeAudioSources: Set<AudioScheduledSourceNode>;
   scheduledTimeouts: Set<number>;
+  crowdAmbienceSource: AudioBufferSourceNode | null;
+  crowdAmbienceGain: GainNode | null;
+  lastCommentaryTime: number;
+  lastCommentaryCue: string;
   lastKickSound: number;
   lastCheerSound: number;
   lastTouchTeam: TeamId;
@@ -512,7 +529,7 @@ const STADIUM_BASE_TOP_Y = -0.055;
 const PITCH_SURFACE_Y = 0;
 const BLOB_SHADOW_Y = 0.055;
 const FIELD_MARKINGS_Y = 0.11;
-const LANDING_MARKER_Y = 0.17;
+const LANDING_MARKER_Y = 0.135;
 const FLOOR_LAYER_NAMES = ["stadium-base-floor", "grass-surface", "field-markings"] as const;
 const HEAD_COLLIDER_RADIUS = 0.3;
 const LOCOMOTION_STRIDE_LENGTHS = {
@@ -554,6 +571,8 @@ const DEFAULT_OFFLINE_SETTINGS: OfflineSettings = {
   formation: "4-3-3",
   homeColor: HOME_KIT.primary,
   selectedPlayersBySlot: {},
+  crowdVolume: 0.45,
+  commentaryVolume: 0.62,
 };
 
 const TUTORIAL_LESSONS: TutorialLessonDefinition[] = [
@@ -625,6 +644,214 @@ const FORMATION_OPTIONS: Record<FormationKey, FormationSlot[]> = {
   ],
 };
 
+type PlayerProfileDefinition = {
+  name: string;
+  shortName: string;
+  description: string;
+  eligibleLines: PlayerLine[];
+  eligibleSlots?: string[];
+  preferredFoot: "left" | "right";
+  skin: string;
+  hair: string;
+  hairStyle: "short" | "buzz" | "curly" | "ponytail" | "long-curly";
+  scale: [number, number, number];
+  torsoWidth: number;
+  shoulderWidth: number;
+  legLength: number;
+};
+
+const PLAYER_PROFILE_DEFINITIONS: Record<PlayerProfile, PlayerProfileDefinition> = {
+  default: {
+    name: "Default Player",
+    shortName: "DEFAULT",
+    description: "Balanced all-position footballer.",
+    eligibleLines: ["keeper", "defender", "midfielder", "forward"],
+    preferredFoot: "right",
+    skin: "#e8b88f",
+    hair: "#24160f",
+    hairStyle: "short",
+    scale: [0.94, 0.94, 0.94],
+    torsoWidth: 1,
+    shoulderWidth: 0.24,
+    legLength: 1,
+  },
+  haaland: {
+    name: "Haaland",
+    shortName: "HAALAND",
+    description: "Very tall, powerful left-footed striker prototype.",
+    eligibleLines: ["forward"],
+    eligibleSlots: ["ST", "LST", "RST"],
+    preferredFoot: "left",
+    skin: "#f0c5a4",
+    hair: "#d8bd87",
+    hairStyle: "ponytail",
+    scale: [0.96, 1.005, 0.96],
+    torsoWidth: 1.07,
+    shoulderWidth: 0.27,
+    legLength: 1.075,
+  },
+  courtois: {
+    name: "Courtois",
+    shortName: "COURTOIS",
+    description: "Very tall, lean goalkeeper prototype.",
+    eligibleLines: ["keeper"],
+    eligibleSlots: ["GK"],
+    preferredFoot: "left",
+    skin: "#e6b28c",
+    hair: "#3b2418",
+    hairStyle: "short",
+    scale: [0.95, 1.045, 0.95],
+    torsoWidth: 1.03,
+    shoulderWidth: 0.255,
+    legLength: 1.09,
+  },
+  vitinha: {
+    name: "Vitinha",
+    shortName: "VITINHA",
+    description: "Compact, agile central midfielder prototype.",
+    eligibleLines: ["midfielder"],
+    preferredFoot: "right",
+    skin: "#dba27c",
+    hair: "#2a1810",
+    hairStyle: "short",
+    scale: [0.91, 0.9, 0.91],
+    torsoWidth: 0.94,
+    shoulderWidth: 0.225,
+    legLength: 0.96,
+  },
+  pedri: {
+    name: "Pedri",
+    shortName: "PEDRI",
+    description: "Slim, low-center creative midfielder prototype.",
+    eligibleLines: ["midfielder"],
+    preferredFoot: "right",
+    skin: "#d9a27c",
+    hair: "#332018",
+    hairStyle: "short",
+    scale: [0.91, 0.91, 0.91],
+    torsoWidth: 0.93,
+    shoulderWidth: 0.225,
+    legLength: 0.98,
+  },
+  salah: {
+    name: "Salah",
+    shortName: "SALAH",
+    description: "Athletic left-footed winger with a curly silhouette.",
+    eligibleLines: ["midfielder", "forward"],
+    eligibleSlots: ["LW", "RW", "LM", "RM", "ST", "LST", "RST"],
+    preferredFoot: "left",
+    skin: "#a96f4f",
+    hair: "#17100d",
+    hairStyle: "curly",
+    scale: [0.94, 0.94, 0.94],
+    torsoWidth: 1.02,
+    shoulderWidth: 0.25,
+    legLength: 1.01,
+  },
+  rodri: {
+    name: "Rodri",
+    shortName: "RODRI",
+    description: "Tall, composed holding-midfielder prototype.",
+    eligibleLines: ["midfielder"],
+    preferredFoot: "right",
+    skin: "#dab08f",
+    hair: "#2b211c",
+    hairStyle: "buzz",
+    scale: [0.96, 0.985, 0.96],
+    torsoWidth: 1.05,
+    shoulderWidth: 0.26,
+    legLength: 1.04,
+  },
+  bellingham: {
+    name: "Bellingham",
+    shortName: "BELLINGHAM",
+    description: "Tall, athletic box-to-box midfielder prototype.",
+    eligibleLines: ["midfielder"],
+    preferredFoot: "right",
+    skin: "#8d5d44",
+    hair: "#15100d",
+    hairStyle: "short",
+    scale: [0.96, 0.985, 0.96],
+    torsoWidth: 1.04,
+    shoulderWidth: 0.26,
+    legLength: 1.055,
+  },
+  ronaldo: {
+    name: "Ronaldo",
+    shortName: "RONALDO",
+    description: "Powerful central striker prototype with a stockier build.",
+    eligibleLines: ["forward"],
+    eligibleSlots: ["ST", "LST", "RST"],
+    preferredFoot: "right",
+    skin: "#b97c58",
+    hair: "#17110e",
+    hairStyle: "buzz",
+    scale: [0.96, 0.955, 0.97],
+    torsoWidth: 1.09,
+    shoulderWidth: 0.27,
+    legLength: 1,
+  },
+  messi: {
+    name: "Messi",
+    shortName: "MESSI",
+    description: "Short, compact left-footed creator prototype.",
+    eligibleLines: ["midfielder", "forward"],
+    eligibleSlots: ["LW", "RW", "LM", "RM", "LCM", "RCM", "CM", "ST", "LST", "RST"],
+    preferredFoot: "left",
+    skin: "#e0ae88",
+    hair: "#382218",
+    hairStyle: "short",
+    scale: [0.91, 0.885, 0.91],
+    torsoWidth: 1,
+    shoulderWidth: 0.235,
+    legLength: 0.95,
+  },
+  "cristiano-ronaldo": {
+    name: "Cristiano Ronaldo",
+    shortName: "C. RONALDO",
+    description: "Tall, explosive and powerful attacker prototype.",
+    eligibleLines: ["midfielder", "forward"],
+    eligibleSlots: ["LW", "RW", "LM", "RM", "ST", "LST", "RST"],
+    preferredFoot: "right",
+    skin: "#c78d65",
+    hair: "#241810",
+    hairStyle: "short",
+    scale: [0.96, 0.985, 0.96],
+    torsoWidth: 1.08,
+    shoulderWidth: 0.27,
+    legLength: 1.05,
+  },
+  ronaldinho: {
+    name: "Ronaldinho",
+    shortName: "RONALDINHO",
+    description: "Creative attacker prototype with a long-curly silhouette.",
+    eligibleLines: ["midfielder", "forward"],
+    eligibleSlots: ["LW", "RW", "LM", "RM", "LCM", "RCM", "CM", "ST", "LST", "RST"],
+    preferredFoot: "right",
+    skin: "#8f5f43",
+    hair: "#11100f",
+    hairStyle: "long-curly",
+    scale: [0.94, 0.95, 0.94],
+    torsoWidth: 1.01,
+    shoulderWidth: 0.25,
+    legLength: 1.02,
+  },
+};
+
+const PLAYER_PROFILE_IDS = Object.keys(PLAYER_PROFILE_DEFINITIONS) as PlayerProfile[];
+
+function isPlayerProfile(value: unknown): value is PlayerProfile {
+  return typeof value === "string" && PLAYER_PROFILE_IDS.includes(value as PlayerProfile);
+}
+
+function playerProfilesForSlot(slot: FormationSlot) {
+  return PLAYER_PROFILE_IDS.filter((profile) => {
+    const definition = PLAYER_PROFILE_DEFINITIONS[profile];
+    return definition.eligibleLines.includes(slot.line)
+      && (!definition.eligibleSlots || definition.eligibleSlots.includes(slot.slot));
+  });
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
@@ -635,19 +862,28 @@ function sanitizeHomeColor(value: string) {
 
 function normalizeOfflineSettings(value: Partial<OfflineSettings> | null | undefined): OfflineSettings {
   const formation = value?.formation === "4-4-2" ? "4-4-2" : "4-3-3";
-  const legacyProfile = (value as Partial<OfflineSettings> & { strikerProfile?: StrikerProfile } | null | undefined)?.strikerProfile;
-  const selectedPlayersBySlot: Record<string, StrikerProfile> = value?.selectedPlayersBySlot && typeof value.selectedPlayersBySlot === "object"
-    ? Object.fromEntries(Object.entries(value.selectedPlayersBySlot).map(([slot, profile]) => [
-      slot,
-      profile === "haaland" ? "haaland" : "default",
-    ])) as Record<string, StrikerProfile>
+  const legacyProfile = (value as Partial<OfflineSettings> & { strikerProfile?: PlayerProfile } | null | undefined)?.strikerProfile;
+  const formationSlots = new Map(FORMATION_OPTIONS[formation].map((slot) => [slot.slot, slot]));
+  const selectedPlayersBySlot: Record<string, PlayerProfile> = {};
+  const usedProfiles = new Set<PlayerProfile>();
+  const sourceEntries = value?.selectedPlayersBySlot && typeof value.selectedPlayersBySlot === "object"
+    ? Object.entries(value.selectedPlayersBySlot)
     : legacyProfile === "haaland"
-      ? { [formation === "4-4-2" ? "LST" : "ST"]: "haaland" as const }
-      : {};
+      ? [[formation === "4-4-2" ? "LST" : "ST", "haaland"]]
+      : [];
+  sourceEntries.forEach(([slotName, rawProfile]) => {
+    const slot = formationSlots.get(slotName);
+    const profile = isPlayerProfile(rawProfile) ? rawProfile : "default";
+    if (!slot || profile === "default" || usedProfiles.has(profile) || !playerProfilesForSlot(slot).includes(profile)) return;
+    selectedPlayersBySlot[slotName] = profile;
+    usedProfiles.add(profile);
+  });
   return {
     formation,
     homeColor: sanitizeHomeColor(value?.homeColor ?? DEFAULT_OFFLINE_SETTINGS.homeColor),
     selectedPlayersBySlot,
+    crowdVolume: clamp(Number(value?.crowdVolume ?? DEFAULT_OFFLINE_SETTINGS.crowdVolume), 0, 1),
+    commentaryVolume: clamp(Number(value?.commentaryVolume ?? DEFAULT_OFFLINE_SETTINGS.commentaryVolume), 0, 1),
   };
 }
 
@@ -1255,6 +1491,14 @@ function clearRuntimeAudioSources(active: MatchRuntime) {
     source.disconnect();
   });
   active.activeAudioSources.clear();
+  active.crowdAmbienceSource = null;
+  if (active.crowdAmbienceGain) {
+    active.crowdAmbienceGain.disconnect();
+    active.crowdAmbienceGain = null;
+  }
+  active.renderer.domElement.dataset.crowdAmbience = "stopped";
+  active.renderer.domElement.dataset.audioSourceCount = "0";
+  if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
 }
 
 function syncRuntimeDiagnostics(active: MatchRuntime) {
@@ -1311,8 +1555,15 @@ function syncRuntimeDiagnostics(active: MatchRuntime) {
   canvas.dataset.haalandPlayers = JSON.stringify(active.players
     .filter((player) => player.profile === "haaland")
     .map((player) => ({ id: player.id, team: player.team, slot: player.formationSlot })));
+  canvas.dataset.starPlayers = JSON.stringify(active.players
+    .filter((player) => player.profile !== "default")
+    .map((player) => ({ id: player.id, team: player.team, slot: player.formationSlot, profile: player.profile })));
   canvas.dataset.visibleHaalandLabels = String(active.players
     .filter((player) => player.possessionLabel?.visible).length);
+  canvas.dataset.visibleStarLabels = canvas.dataset.visibleHaalandLabels;
+  canvas.dataset.landingMarkerShape = "yellow-x";
+  canvas.dataset.crowdVolume = activeOfflineSettings.crowdVolume.toFixed(2);
+  canvas.dataset.commentaryVolume = activeOfflineSettings.commentaryVolume.toFixed(2);
   canvas.dataset.colliderCount = String(active.players.length + 1);
   canvas.dataset.timerCount = String(active.scheduledTimeouts.size);
   canvas.dataset.audioSourceCount = String(active.activeAudioSources.size);
@@ -1829,8 +2080,9 @@ function makeHumanFigure({
   accent?: string;
   numberPanel?: THREE.Object3D;
   sponsor?: string;
-  profile?: StrikerProfile;
+  profile?: PlayerProfile;
 }) {
+  const profileDefinition = PLAYER_PROFILE_DEFINITIONS[profile];
   const group = new THREE.Group();
   const bodyRoot = new THREE.Group();
   bodyRoot.name = "body-root";
@@ -1906,7 +2158,7 @@ function makeHumanFigure({
     clavicle.rotation.z = side * 0.045;
     const shoulder = new THREE.Group();
     shoulder.name = side < 0 ? "left-arm" : "right-arm";
-    shoulder.position.set(side * (profile === "haaland" ? 0.27 : 0.24), 0, 0);
+    shoulder.position.set(side * profileDefinition.shoulderWidth, 0, 0);
     shoulder.rotation.z = side * 0.105;
     const sleeve = new THREE.Mesh(sharedGeometry("player-shirt-sleeve-closed", createSleeveGeometry), shirtMaterial);
     sleeve.position.y = -0.08;
@@ -1934,7 +2186,7 @@ function makeHumanFigure({
     const leg = new THREE.Group();
     leg.name = side < 0 ? "left-leg" : "right-leg";
     leg.position.set(side * 0.225, -0.03, 0);
-    if (profile === "haaland") leg.scale.y = 1.075;
+    leg.scale.y = profileDefinition.legLength;
     const shortsLeg = new THREE.Mesh(sharedGeometry("player-shorts-leg-closed", createShortsLegGeometry), shortsMaterial);
     shortsLeg.position.y = -0.12;
     const thigh = new THREE.Mesh(sharedGeometry("player-thigh-tapered", createThighGeometry), skinMaterial);
@@ -1969,14 +2221,37 @@ function makeHumanFigure({
   const mouth = new THREE.Mesh(sharedGeometry("player-mouth", () => new THREE.BoxGeometry(0.1, 0.012, 0.01)), featureMaterial);
   mouth.position.set(0, 0.08, 0.235);
 
-  if (profile === "haaland") {
-    torso.scale.x = 1.07;
+  torso.scale.x = profileDefinition.torsoWidth;
+  if (profileDefinition.hairStyle === "ponytail") {
     const hairTie = new THREE.Mesh(sharedGeometry("haaland-hair-tie", () => new THREE.SphereGeometry(0.1, 6, 4)), hairMaterial);
     hairTie.position.set(0, 0.32, -0.2);
     const hairTail = new THREE.Mesh(sharedGeometry("haaland-hair-tail", () => new THREE.CapsuleGeometry(0.065, 0.25, 2, 6)), hairMaterial);
     hairTail.position.set(0, 0.18, -0.25);
     hairTail.rotation.x = -0.2;
     headRoot.add(hairTie, hairTail);
+  } else if (profileDefinition.hairStyle === "curly" || profileDefinition.hairStyle === "long-curly") {
+    const curlCount = profileDefinition.hairStyle === "long-curly" ? 11 : 8;
+    const curlGeometry = sharedGeometry("player-hair-curl", () => new THREE.SphereGeometry(0.085, 5, 4));
+    for (let index = 0; index < curlCount; index += 1) {
+      const angle = index / curlCount * Math.PI * 2;
+      const curl = new THREE.Mesh(curlGeometry, hairMaterial);
+      const longHairDrop = profileDefinition.hairStyle === "long-curly" && index % 2 === 0 ? -0.16 : 0;
+      curl.position.set(Math.cos(angle) * 0.19, 0.36 + longHairDrop, Math.sin(angle) * 0.19);
+      curl.scale.setScalar(profileDefinition.hairStyle === "long-curly" ? 1.04 : 0.9);
+      headRoot.add(curl);
+    }
+    if (profileDefinition.hairStyle === "long-curly") {
+      const tiedBackHair = new THREE.Mesh(
+        sharedGeometry("player-long-curly-tail", () => new THREE.CapsuleGeometry(0.1, 0.34, 2, 6)),
+        hairMaterial,
+      );
+      tiedBackHair.position.set(0, 0.14, -0.24);
+      tiedBackHair.rotation.x = -0.16;
+      headRoot.add(tiedBackHair);
+    }
+  } else if (profileDefinition.hairStyle === "buzz") {
+    hairCap.scale.set(0.84, 0.25, 0.9);
+    hairCap.position.y = 0.37;
   }
 
   headRoot.add(head, headContact, jaw, hairCap, nose, mouth);
@@ -1989,7 +2264,7 @@ function makeHumanFigure({
   bodyRoot.add(pelvisRoot);
   if (numberPanel) bodyRoot.add(numberPanel);
   group.add(bodyRoot);
-  group.scale.set(profile === "haaland" ? 0.96 : 0.94, profile === "haaland" ? 1.005 : 0.94, profile === "haaland" ? 0.96 : 0.94);
+  group.scale.set(...profileDefinition.scale);
 
   bodyRoot.traverse((joint) => {
     if (!(joint instanceof THREE.Group || joint instanceof THREE.Object3D)) return;
@@ -1997,24 +2272,30 @@ function makeHumanFigure({
     joint.userData.restPosition = joint.position.clone();
   });
 
-  if (profile === "haaland") {
+  if (profile !== "default") {
     const labelCanvas = document.createElement("canvas");
     labelCanvas.width = 1024;
     labelCanvas.height = 256;
     const labelContext = labelCanvas.getContext("2d");
     if (labelContext) {
       labelContext.clearRect(0, 0, labelCanvas.width, labelCanvas.height);
-      labelContext.fillStyle = "rgba(4, 12, 9, 0.82)";
-      labelContext.roundRect(74, 30, 876, 196, 42);
-      labelContext.fill();
-      labelContext.font = "900 144px Arial, sans-serif";
+      let fontSize = 142;
+      do {
+        labelContext.font = `900 ${fontSize}px Arial, sans-serif`;
+        if (labelContext.measureText(profileDefinition.shortName).width <= 900) break;
+        fontSize -= 6;
+      } while (fontSize > 86);
       labelContext.textAlign = "center";
       labelContext.textBaseline = "middle";
-      labelContext.lineWidth = 18;
-      labelContext.strokeStyle = "rgba(0,0,0,0.8)";
-      labelContext.strokeText("HAALAND", labelCanvas.width / 2, labelCanvas.height / 2);
+      labelContext.shadowColor = "rgba(0,0,0,0.88)";
+      labelContext.shadowBlur = 18;
+      labelContext.shadowOffsetY = 9;
+      labelContext.lineJoin = "round";
+      labelContext.lineWidth = 20;
+      labelContext.strokeStyle = "rgba(0,0,0,0.92)";
+      labelContext.strokeText(profileDefinition.shortName, labelCanvas.width / 2, labelCanvas.height / 2);
       labelContext.fillStyle = "#ffffff";
-      labelContext.fillText("HAALAND", labelCanvas.width / 2, labelCanvas.height / 2);
+      labelContext.fillText(profileDefinition.shortName, labelCanvas.width / 2, labelCanvas.height / 2);
     }
     const labelTexture = new THREE.CanvasTexture(labelCanvas);
     labelTexture.colorSpace = THREE.SRGBColorSpace;
@@ -2027,9 +2308,9 @@ function makeHumanFigure({
       depthTest: false,
       depthWrite: false,
     }));
-    label.name = "haaland-possession-label";
+    label.name = "player-possession-label";
     label.position.set(0, 4.55, 0);
-    label.scale.set(8.8, 2.2, 1);
+    label.scale.set(8.6, 2.15, 1);
     label.renderOrder = 30;
     label.visible = false;
     group.add(label);
@@ -2091,7 +2372,7 @@ function makeHumanFigure({
   return group;
 }
 
-function makeKit(team: TeamId, role: PlayerRole, accent: string, number: number, profile: StrikerProfile = "default") {
+function makeKit(team: TeamId, role: PlayerRole, accent: string, number: number, profile: PlayerProfile = "default") {
   const isKeeper = role === "keeper";
   const home = HOME_KIT;
   const homeColor = activeOfflineSettings.homeColor || home.primary;
@@ -2106,8 +2387,10 @@ function makeKit(team: TeamId, role: PlayerRole, accent: string, number: number,
     shorts,
     socks,
     boot,
-    skin: profile === "haaland" ? "#f0c5a4" : "#e8b88f",
-    hair: profile === "haaland" ? "#d8bd87" : number % 3 === 0 ? "#111827" : number % 2 === 0 ? "#6b3f1f" : "#24160f",
+    skin: profile === "default" ? "#e8b88f" : PLAYER_PROFILE_DEFINITIONS[profile].skin,
+    hair: profile === "default"
+      ? number % 3 === 0 ? "#111827" : number % 2 === 0 ? "#6b3f1f" : "#24160f"
+      : PLAYER_PROFILE_DEFINITIONS[profile].hair,
     accent: isKeeper ? "#f8fafc" : team === "home" ? home.accent : accent,
     numberPanel: undefined,
     sponsor: team === "home" ? home.name.split(" ")[0].slice(0, 2).toUpperCase() : "AW",
@@ -2249,35 +2532,34 @@ function createKickTrajectoryPreview() {
 
   const landingZone = new THREE.Group();
   landingZone.name = "loft-landing-zone";
-  const landingFill = new THREE.Mesh(
-    new THREE.CircleGeometry(2.75, 32),
-    new THREE.MeshBasicMaterial({
-      color: "#1597ff",
-      transparent: true,
-      opacity: 0.2,
-      side: THREE.DoubleSide,
-      depthTest: false,
-      depthWrite: false,
-    }),
-  );
-  landingFill.rotation.x = -Math.PI / 2;
-  landingFill.renderOrder = 26;
-  const landingRing = new THREE.Mesh(
-    new THREE.RingGeometry(2.2, 2.75, 32),
-    new THREE.MeshBasicMaterial({
-      color: "#60c7ff",
-      transparent: true,
-      opacity: 0.94,
-      side: THREE.DoubleSide,
-      depthTest: false,
-      depthWrite: false,
-    }),
-  );
-  landingRing.rotation.x = -Math.PI / 2;
-  landingRing.renderOrder = 26;
-  landingZone.add(landingFill, landingRing);
+  const xMaterial = new THREE.MeshBasicMaterial({
+    color: "#ffe11f",
+    transparent: true,
+    opacity: 0.98,
+    side: THREE.DoubleSide,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const xOutlineMaterial = new THREE.MeshBasicMaterial({
+    color: "#4a3f00",
+    transparent: true,
+    opacity: 0.72,
+    side: THREE.DoubleSide,
+    depthTest: false,
+    depthWrite: false,
+  });
+  [-Math.PI / 4, Math.PI / 4].forEach((angle) => {
+    const outline = new THREE.Mesh(new THREE.PlaneGeometry(2.45, 0.3), xOutlineMaterial);
+    outline.rotation.set(-Math.PI / 2, 0, angle);
+    outline.renderOrder = 26;
+    const stroke = new THREE.Mesh(new THREE.PlaneGeometry(2.28, 0.15), xMaterial);
+    stroke.rotation.set(-Math.PI / 2, 0, angle);
+    stroke.position.y = 0.004;
+    stroke.renderOrder = 27;
+    landingZone.add(outline, stroke);
+  });
   landingZone.position.y = LANDING_MARKER_Y;
-  landingZone.renderOrder = 26;
+  landingZone.renderOrder = 27;
   landingZone.visible = false;
   return { guide, line, endpoint, landingZone };
 }
@@ -2916,8 +3198,7 @@ function addLightweightStadium(scene: THREE.Scene) {
     stadium.add(ring);
   });
 
-  // The shell keeps the bowl visually enclosed. The roof begins beyond the
-  // camera-side shell so its inner edge cannot mask the near touchline.
+  // A substantial upper shell closes the bowl without a thin hovering roof.
   const upperShell = new THREE.Mesh(
     stadiumRingGeometry(
       innerWidth + 50.8,
@@ -2934,36 +3215,20 @@ function addLightweightStadium(scene: THREE.Scene) {
   upperShell.name = "stadium-upper-enclosing-shell";
   stadium.add(upperShell);
 
-  const roof = new THREE.Mesh(
-    stadiumRingGeometry(
-      innerWidth + 61,
-      innerLength + 61,
-      innerWidth + 68,
-      innerLength + 68,
-      36.2,
-      40.4,
-      0.9,
-    ),
-    new THREE.MeshLambertMaterial({ color: "#2f3e4d", side: THREE.DoubleSide }),
-  );
-  roof.position.y = 36.2;
-  roof.name = "stadium-partial-roof-ring";
-  stadium.add(roof);
-
   const roofFascia = new THREE.Mesh(
     stadiumRingGeometry(
-      innerWidth + 59.8,
-      innerLength + 59.8,
-      innerWidth + 62.2,
-      innerLength + 62.2,
-      35.4,
-      37.1,
-      2.2,
+      innerWidth + 55.8,
+      innerLength + 55.8,
+      innerWidth + 64.5,
+      innerLength + 64.5,
+      33.4,
+      38.4,
+      3.4,
     ),
     new THREE.MeshLambertMaterial({ color: "#182631" }),
   );
-  roofFascia.position.y = 34;
-  roofFascia.name = "stadium-inner-roof-fascia";
+  roofFascia.position.y = 31.4;
+  roofFascia.name = "stadium-substantial-upper-crown";
   stadium.add(roofFascia);
 
   const decks: StadiumDeck[] = [
@@ -2983,6 +3248,27 @@ function addLightweightStadium(scene: THREE.Scene) {
       color: seatColors[(deckIndex * 2 + sectionIndex) % seatColors.length],
     });
   };
+
+  const deckSupportMaterial = new THREE.MeshLambertMaterial({ color: "#344953" });
+  decks.forEach((deck, deckIndex) => {
+    const innerOffset = Math.max(0.8, deck.startOffset - 1.15);
+    const outerOffset = deck.startOffset + deck.rows * deck.rowDepth + 0.75;
+    const deckSupport = new THREE.Mesh(
+      stadiumRingGeometry(
+        runoffWidth + innerOffset * 2,
+        runoffLength + innerOffset * 2,
+        runoffWidth + outerOffset * 2,
+        runoffLength + outerOffset * 2,
+        7.2 + innerOffset,
+        7.2 + outerOffset,
+        0.48,
+      ),
+      deckSupportMaterial,
+    );
+    deckSupport.position.y = Math.max(0.24, deck.startY - 0.7);
+    deckSupport.name = `stadium-solid-seat-deck-${deckIndex + 1}`;
+    stadium.add(deckSupport);
+  });
 
   const treadPlacements: Array<{ position: THREE.Vector3; scale: THREE.Vector3; rotationY: number }> = [];
   const riserPlacements: Array<{ position: THREE.Vector3; scale: THREE.Vector3; rotationY: number }> = [];
@@ -3200,6 +3486,8 @@ function addLightweightStadium(scene: THREE.Scene) {
   stadium.userData.seatSpacing = seatSpacing;
   stadium.userData.maximumHeight = 37.1;
   stadium.userData.upperTierCount = 3;
+  stadium.userData.thinRoofRemoved = true;
+  stadium.userData.solidSeatDeckCount = decks.length;
   adTexture.userData.stadiumDiagnostics = {
     seatingRows: stadium.userData.seatingRows,
     seatCount: stadium.userData.seatCount,
@@ -3210,6 +3498,8 @@ function addLightweightStadium(scene: THREE.Scene) {
     terraceRowRise: stadium.userData.terraceRowRise,
     terraceRowDepth: stadium.userData.terraceRowDepth,
     seatSpacing,
+    thinRoofRemoved: stadium.userData.thinRoofRemoved,
+    solidSeatDeckCount: stadium.userData.solidSeatDeckCount,
   };
 
   scene.add(stadium);
@@ -3355,7 +3645,7 @@ function attachDevelopmentRigDebug(mesh: THREE.Group) {
 }
 
 function createPlayer(id: string, team: TeamId, role: PlayerRole, line: PlayerLine, x: number, z: number, number: number, formationSlot: string, controlledBy?: "p1") {
-  const profile: StrikerProfile = team === "home" && role === "field"
+  const profile: PlayerProfile = team === "home"
     ? activeOfflineSettings.selectedPlayersBySlot[formationSlot] ?? "default"
     : "default";
   const mesh = makeKit(team, role, "#ffffff", number, profile);
@@ -3369,7 +3659,7 @@ function createPlayer(id: string, team: TeamId, role: PlayerRole, line: PlayerLi
   if (marker) marker.visible = Boolean(controlledBy);
   const receiverMarker = mesh.getObjectByName("receiver-marker") ?? null;
   const aimArrow = mesh.getObjectByName("aim-arrow") ?? null;
-  const possessionLabel = mesh.getObjectByName("haaland-possession-label") ?? null;
+  const possessionLabel = mesh.getObjectByName("player-possession-label") ?? null;
   return {
     id,
     team,
@@ -3387,7 +3677,7 @@ function createPlayer(id: string, team: TeamId, role: PlayerRole, line: PlayerLi
     possessionLabel,
     parts: animationParts(mesh),
     profile,
-    preferredFoot: profile === "haaland" ? "left" : "right",
+    preferredFoot: PLAYER_PROFILE_DEFINITIONS[profile].preferredFoot,
     heading: headingForHome(z),
     turnRate: 0,
     stamina: 1,
@@ -3873,6 +4163,9 @@ export function ArcadeSoccerGame() {
       scoreUiRef.current = { ...active.score };
       setScore({ ...active.score });
     }
+    if (active?.crowdAmbienceGain && active.audio) {
+      active.crowdAmbienceGain.gain.setTargetAtTime(next.crowdVolume * 0.11, active.audio.currentTime, 0.08);
+    }
     settingsOpenRef.current = false;
     setSettingsOpen(false);
     setSelectedFormationSlot(null);
@@ -4279,6 +4572,8 @@ export function ArcadeSoccerGame() {
     tutorialUiRef.current = { active: false, lessonIndex: 0, status: "active" };
     setTutorialUi(tutorialUiRef.current);
     startDirectKickoff(active, "home");
+    startMatchAudio(active);
+    playCommentary(active, "kickoff", true);
     if (showTouchControls) {
       setP1AutopilotMode(active, true);
       syncP1AiUi(true);
@@ -4662,6 +4957,10 @@ export function ArcadeSoccerGame() {
       audio: null,
       activeAudioSources: new Set<AudioScheduledSourceNode>(),
       scheduledTimeouts: new Set<number>(),
+      crowdAmbienceSource: null,
+      crowdAmbienceGain: null,
+      lastCommentaryTime: 0,
+      lastCommentaryCue: "",
       lastKickSound: 0,
       lastCheerSound: 0,
       lastTouchTeam: "home",
@@ -6909,6 +7208,7 @@ export function ArcadeSoccerGame() {
         active.shotCharge = 0;
         active.passCharge = 0;
         playWhistleSequence(active, 3);
+        playCommentary(active, "fulltime", true);
         active.state = "ended";
         void finishAnalyticsSession(gameSessionRef.current, visitorIdRef.current, active.score);
         gameSessionRef.current = null;
@@ -7382,7 +7682,7 @@ export function ArcadeSoccerGame() {
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <h2 className="text-2xl font-black">Formation & Match Settings</h2>
-                <p className="mt-1 text-sm text-white/60">Choose a formation, then select a striker directly from its formation slot.</p>
+                <p className="mt-1 text-sm text-white/60">Choose a formation, then select compatible players directly from each position.</p>
               </div>
               <div className="flex gap-2">
                 <button
@@ -7447,6 +7747,34 @@ export function ArcadeSoccerGame() {
                 </div>
 
                 <div className="rounded-md border border-white/10 bg-white/5 p-3">
+                  <div className="mb-3 text-sm font-black uppercase text-cyan-100/80">Audio Mix</div>
+                  <label className="mb-3 block text-xs font-bold text-white/75">
+                    <span className="mb-1 flex justify-between"><span>Crowd</span><span>{Math.round(draftSettings.crowdVolume * 100)}%</span></span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                step="0.01"
+                      value={draftSettings.crowdVolume}
+                      className="w-full accent-emerald-300"
+                      onChange={(event) => setDraftSettings((current) => ({ ...current, crowdVolume: Number(event.target.value) }))}
+                    />
+                  </label>
+                  <label className="block text-xs font-bold text-white/75">
+                    <span className="mb-1 flex justify-between"><span>Commentary</span><span>{Math.round(draftSettings.commentaryVolume * 100)}%</span></span>
+                    <input
+                      type="range"
+                      min="0"
+                      max="1"
+                step="0.01"
+                      value={draftSettings.commentaryVolume}
+                      className="w-full accent-cyan-300"
+                      onChange={(event) => setDraftSettings((current) => ({ ...current, commentaryVolume: Number(event.target.value) }))}
+                    />
+                  </label>
+                </div>
+
+                <div className="rounded-md border border-white/10 bg-white/5 p-3">
                   <div className="mb-2 text-sm font-black uppercase text-cyan-100/80">Formation Shape</div>
                   <div className="relative h-72 overflow-hidden rounded-md border border-emerald-100/20 bg-emerald-900/50">
                     <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-white/10" />
@@ -7454,14 +7782,16 @@ export function ArcadeSoccerGame() {
                     {FORMATION_OPTIONS[draftSettings.formation].map((slot) => {
                       const left = clamp(50 + (slot.x / 28) * 42, 8, 92);
                       const top = clamp(50 + (slot.z / 52) * 42, 8, 92);
-                      const isStrikerSlot = slot.slot.includes("ST");
+                      const selectableProfiles = playerProfilesForSlot(slot);
+                      const isSelectableSlot = selectableProfiles.length > 1;
                       const selectedProfile = draftSettings.selectedPlayersBySlot[slot.slot] ?? "default";
+                      const selectedDefinition = PLAYER_PROFILE_DEFINITIONS[selectedProfile];
                       return (
                         <button
                           type="button"
                           key={slot.slot}
                           className={`absolute grid min-h-10 min-w-14 -translate-x-1/2 -translate-y-1/2 place-items-center border px-2 py-1 text-[10px] font-black text-white outline-none transition ${
-                            isStrikerSlot
+                            isSelectableSlot
                               ? selectedFormationSlot === slot.slot
                                 ? "border-emerald-100 bg-emerald-300 text-slate-950 shadow-[0_0_0_3px_rgba(110,231,183,0.22)]"
                                 : "cursor-pointer border-white/60 hover:scale-105 hover:border-emerald-100 focus-visible:ring-2 focus-visible:ring-emerald-200 active:scale-95"
@@ -7474,17 +7804,17 @@ export function ArcadeSoccerGame() {
                               ? undefined
                               : slot.line === "keeper"
                                 ? "#ca8a04dd"
-                                : selectedProfile === "haaland"
+                                : selectedProfile !== "default"
                                   ? "#059669ee"
                                   : `${draftSettings.homeColor}dd`,
                           }}
                           onClick={() => {
-                            if (isStrikerSlot) setSelectedFormationSlot(slot.slot);
+                            if (isSelectableSlot) setSelectedFormationSlot(slot.slot);
                           }}
-                          aria-label={isStrikerSlot ? `Select player for ${slot.label}` : slot.label}
+                          aria-label={isSelectableSlot ? `Select player for ${slot.label}` : slot.label}
                         >
-                          <span>{selectedProfile === "haaland" ? "HAALAND" : slot.label}</span>
-                          {selectedProfile === "haaland" && <span className="text-[8px] opacity-75">{slot.label}</span>}
+                          <span>{selectedProfile === "default" ? slot.label : selectedDefinition.shortName}</span>
+                          {selectedProfile !== "default" && <span className="text-[8px] opacity-75">{slot.label}</span>}
                         </button>
                       );
                     })}
@@ -7508,25 +7838,30 @@ export function ArcadeSoccerGame() {
                       </button>
                     </div>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                      {([
-                        { profile: "default" as const, name: "Default Striker", description: "Balanced movement and finishing." },
-                        { profile: "haaland" as const, name: "Erling Haaland", description: "Tall, powerful striker prototype." },
-                      ]).map((choice) => {
-                        const selected = (draftSettings.selectedPlayersBySlot[selectedFormationSlot] ?? "default") === choice.profile;
+                      {playerProfilesForSlot(
+                        FORMATION_OPTIONS[draftSettings.formation].find((slot) => slot.slot === selectedFormationSlot)
+                          ?? FORMATION_OPTIONS[draftSettings.formation][0],
+                      ).map((profile) => {
+                        const choice = PLAYER_PROFILE_DEFINITIONS[profile];
+                        const selected = (draftSettings.selectedPlayersBySlot[selectedFormationSlot] ?? "default") === profile;
                         return (
                           <button
                             type="button"
-                            key={choice.profile}
+                            key={profile}
                             className={`border p-4 text-left transition ${
                               selected
                                 ? "border-emerald-200 bg-emerald-300/15 shadow-[inset_0_0_0_1px_rgba(167,243,208,0.2)]"
                                 : "border-white/15 bg-black/20 hover:border-white/35 hover:bg-white/5"
                             }`}
                             onClick={() => setDraftSettings((current) => {
-                              const selectedPlayersBySlot = choice.profile === "haaland"
-                                ? Object.fromEntries(Object.keys(current.selectedPlayersBySlot).map((slot) => [slot, "default" as const]))
-                                : { ...current.selectedPlayersBySlot };
-                              selectedPlayersBySlot[selectedFormationSlot] = choice.profile;
+                              const selectedPlayersBySlot = { ...current.selectedPlayersBySlot };
+                              if (profile !== "default") {
+                                Object.entries(selectedPlayersBySlot).forEach(([slot, selectedPlayer]) => {
+                                  if (selectedPlayer === profile) delete selectedPlayersBySlot[slot];
+                                });
+                              }
+                              if (profile === "default") delete selectedPlayersBySlot[selectedFormationSlot];
+                              else selectedPlayersBySlot[selectedFormationSlot] = profile;
                               return normalizeOfflineSettings({
                                 ...current,
                                 selectedPlayersBySlot,
@@ -7534,8 +7869,9 @@ export function ArcadeSoccerGame() {
                             })}
                           >
                             <span className="mx-auto grid h-24 w-20 place-items-center" aria-hidden="true">
-                              <span className="relative block h-20 w-12">
-                                <span className="absolute left-1/2 top-0 h-5 w-5 -translate-x-1/2 rounded-full bg-[#e8b88f]" />
+                              <span className="relative block h-20 w-12" style={{ transform: `scale(${choice.scale[1]})` }}>
+                                <span className="absolute left-1/2 top-0 h-5 w-5 -translate-x-1/2 rounded-full" style={{ backgroundColor: choice.skin }} />
+                                <span className="absolute left-1/2 top-0 h-2 w-5 -translate-x-1/2 rounded-t-full" style={{ backgroundColor: choice.hair }} />
                                 <span
                                   className="absolute left-1/2 top-5 h-8 w-9 -translate-x-1/2"
                                   style={{ backgroundColor: draftSettings.homeColor }}
@@ -7560,10 +7896,10 @@ export function ArcadeSoccerGame() {
                 ) : (
                   <div className="grid min-h-72 place-items-center text-center">
                     <div>
-                      <div className="mx-auto grid h-14 w-14 place-items-center border border-emerald-200/35 bg-emerald-300/10 text-xl font-black text-emerald-100">ST</div>
-                      <h3 className="mt-4 text-lg font-black">Select a striker slot</h3>
+                      <div className="mx-auto grid h-14 w-14 place-items-center border border-emerald-200/35 bg-emerald-300/10 text-xl font-black text-emerald-100">XI</div>
+                      <h3 className="mt-4 text-lg font-black">Select a formation position</h3>
                       <p className="mt-2 max-w-xs text-sm leading-relaxed text-white/55">
-                        Click or tap ST, LST, or RST on the formation to choose the player assigned to that exact slot.
+                        Click or tap a compatible position to assign an original star-player prototype to that exact slot.
                       </p>
                     </div>
                   </div>
@@ -7670,11 +8006,11 @@ export function ArcadeSoccerGame() {
                 <span className="mt-1 block text-sm font-black text-white">{offlineSettings.formation}</span>
               </span>
               <span className="text-right">
-                <span className="block text-xs font-black uppercase text-emerald-200/65">Striker</span>
+                <span className="block text-xs font-black uppercase text-emerald-200/65">Star Players</span>
                 <span className="mt-1 block text-sm font-black text-emerald-100">
                   {Object.entries(offlineSettings.selectedPlayersBySlot)
-                    .filter(([, profile]) => profile === "haaland")
-                    .map(([slot]) => `HAALAND / ${slot}`)
+                    .filter(([, profile]) => profile !== "default")
+                    .map(([slot, profile]) => `${PLAYER_PROFILE_DEFINITIONS[profile].shortName} / ${slot}`)
                     .join(", ") || "Default"}
                 </span>
               </span>
@@ -8119,7 +8455,7 @@ function updateMatch(
     player.mesh.position.copy(player.pos);
     animatePlayer(player, dt);
     if (player.possessionLabel) {
-      player.possessionLabel.visible = player.profile === "haaland"
+      player.possessionLabel.visible = player.profile !== "default"
         && active.ballOwnerId === player.id
         && active.possession === player.team;
     }
@@ -8829,6 +9165,7 @@ function beginHalftime(active: MatchRuntime) {
     player.challengeCommitTimer = 0;
   });
   playWhistleSequence(active, 2);
+  playCommentary(active, "halftime", true);
 }
 
 function celebrateGoal(active: MatchRuntime, concedingTeam: TeamId, scoredBy: TeamId) {
@@ -9037,6 +9374,10 @@ function stopForRestart(active: MatchRuntime, phase: PlayPhase, team: TeamId, sp
   active.loftCharge = 0;
   active.loftChargingPlayerId = null;
   active.restartBoundaryGuardTimer = 0;
+  if (phase === "corner") {
+    playCrowdReaction(active, 0.42, 0.72);
+    playCommentary(active, "corner");
+  }
   if (phase === "kickoff") {
     resetKickoffShape(active);
     active.restartActorId = kickoffTaker(active.players, team, spot)?.id ?? null;
@@ -10854,6 +11195,8 @@ function handleGoalkeeperActions(active: MatchRuntime) {
           active.eventText = "PLAY";
           active.eventTimer = 0;
           active.cooldown = Math.max(active.cooldown, 0.26);
+          playCrowdReaction(active, 0.34, 0.56);
+          playCommentary(active, "save");
           return;
         }
         const parrySpeed = clamp(shotSpeed * (wellPositioned || handContact ? 0.14 : 0.21), 1.6, 7.4);
@@ -10879,6 +11222,8 @@ function handleGoalkeeperActions(active: MatchRuntime) {
         active.renderer.domElement.dataset.keeperParries = String(
           Number(active.renderer.domElement.dataset.keeperParries ?? "0") + 1,
         );
+        playCrowdReaction(active, 0.48, 0.68);
+        playCommentary(active, "save");
         active.eventText = "PLAY";
         active.eventTimer = 0;
         keeper.recoveryTimer = Math.min(keeper.recoveryTimer, 0.12);
@@ -11553,6 +11898,122 @@ function ensureAudio(active: MatchRuntime) {
   active.audio = new AudioContextClass();
 }
 
+function startCrowdAmbience(active: MatchRuntime) {
+  if (!active.audio || active.audio.state !== "running" || active.crowdAmbienceSource) return;
+  const audio = active.audio;
+  const duration = 4;
+  const samples = Math.floor(audio.sampleRate * duration);
+  const buffer = audio.createBuffer(1, samples, audio.sampleRate);
+  const data = buffer.getChannelData(0);
+  let smoothedNoise = 0;
+  for (let index = 0; index < samples; index += 1) {
+    const time = index / audio.sampleRate;
+    smoothedNoise = smoothedNoise * 0.92 + (Math.random() * 2 - 1) * 0.08;
+    const distantChant = Math.sin(time * Math.PI * 3.1) * 0.08 + Math.sin(time * Math.PI * 5.7) * 0.035;
+    data[index] = smoothedNoise * 0.76 + distantChant;
+  }
+  const source = audio.createBufferSource();
+  const filter = audio.createBiquadFilter();
+  const gain = audio.createGain();
+  source.buffer = buffer;
+  source.loop = true;
+  filter.type = "bandpass";
+  filter.frequency.value = 620;
+  filter.Q.value = 0.62;
+  gain.gain.value = activeOfflineSettings.crowdVolume * 0.11;
+  source.connect(filter);
+  filter.connect(gain);
+  gain.connect(audio.destination);
+  active.crowdAmbienceSource = source;
+  active.crowdAmbienceGain = gain;
+  trackRuntimeAudioSource(active, source);
+  source.start();
+}
+
+function startMatchAudio(active: MatchRuntime) {
+  ensureAudio(active);
+  if (!active.audio) return;
+  const start = () => {
+    if (active.state !== "playing") return;
+    startCrowdAmbience(active);
+    active.renderer.domElement.dataset.crowdAmbience = "running";
+  };
+  if (active.audio.state === "running") start();
+  else void active.audio.resume().then(start).catch(() => {
+    active.renderer.domElement.dataset.crowdAmbience = "blocked";
+  });
+}
+
+function playCrowdReaction(active: MatchRuntime, intensity = 0.5, duration = 0.72) {
+  if (!active.audio || active.audio.state !== "running" || activeOfflineSettings.crowdVolume <= 0) return;
+  const audio = active.audio;
+  const start = audio.currentTime;
+  const source = audio.createBufferSource();
+  const filter = audio.createBiquadFilter();
+  const gain = audio.createGain();
+  const sampleCount = Math.floor(audio.sampleRate * duration);
+  const buffer = audio.createBuffer(1, sampleCount, audio.sampleRate);
+  const data = buffer.getChannelData(0);
+  let smooth = 0;
+  for (let index = 0; index < sampleCount; index += 1) {
+    const t = index / sampleCount;
+    smooth = smooth * 0.84 + (Math.random() * 2 - 1) * 0.16;
+    const envelope = Math.sin(Math.min(1, t * 3.2) * Math.PI / 2) * Math.pow(1 - t, 0.46);
+    data[index] = smooth * envelope;
+  }
+  source.buffer = buffer;
+  filter.type = "bandpass";
+  filter.frequency.value = 820;
+  filter.Q.value = 0.68;
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(
+    clamp(intensity, 0.08, 1) * activeOfflineSettings.crowdVolume * 0.34,
+    start + 0.06,
+  );
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+  source.connect(filter);
+  filter.connect(gain);
+  gain.connect(audio.destination);
+  trackRuntimeAudioSource(active, source);
+  source.start(start);
+  source.stop(start + duration + 0.02);
+}
+
+const COMMENTARY_LINES = {
+  kickoff: ["The match is under way.", "Kickoff, and both sides settle into shape."],
+  buildup: ["A composed passing move develops.", "They work the ball through midfield."],
+  shot: ["The shot is away.", "He takes aim."],
+  save: ["A strong save from the goalkeeper.", "The keeper gets behind it."],
+  goal: ["Goal. A decisive finish.", "It is in. A well-built attack is rewarded."],
+  corner: ["Corner kick. A chance to deliver.", "They will send players into the area."],
+  halftime: ["Half time. The teams are level with their work still to do.", "The whistle goes for half time."],
+  fulltime: ["Full time. The match is complete.", "The final whistle brings the game to an end."],
+} as const;
+
+type CommentaryCue = keyof typeof COMMENTARY_LINES;
+
+function playCommentary(active: MatchRuntime, cue: CommentaryCue, force = false) {
+  if (
+    typeof window === "undefined"
+    || !("speechSynthesis" in window)
+    || activeOfflineSettings.commentaryVolume <= 0
+  ) return;
+  const now = performance.now();
+  const cooldown = cue === "goal" || cue === "halftime" || cue === "fulltime" ? 900 : 3100;
+  if (!force && now - active.lastCommentaryTime < cooldown) return;
+  active.lastCommentaryTime = now;
+  active.lastCommentaryCue = cue;
+  const lines = COMMENTARY_LINES[cue];
+  const text = lines[(active.frameCount + cue.length) % lines.length];
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.volume = clamp(activeOfflineSettings.commentaryVolume, 0, 1);
+  utterance.rate = 1.03;
+  utterance.pitch = 0.92;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(utterance);
+  active.renderer.domElement.dataset.lastCommentaryCue = cue;
+}
+
 function playTone(active: MatchRuntime, frequency: number, duration: number, volume: number, type: OscillatorType = "sine") {
   if (!active.audio || active.audio.state !== "running") return;
   const now = active.audio.currentTime;
@@ -11615,6 +12076,7 @@ function playGoalSound(active: MatchRuntime) {
   active.lastCheerSound = now;
   playBallNetSound(active);
   scheduleRuntimeTimeout(active, () => playCrowdCheer(active), 180);
+  playCommentary(active, "goal", true);
 }
 
 function playBallNetSound(active: MatchRuntime) {
@@ -11668,8 +12130,8 @@ function playCrowdCheer(active: MatchRuntime) {
   filter.frequency.setValueAtTime(760, start);
   filter.Q.setValueAtTime(0.72, start);
   gain.gain.setValueAtTime(0.0001, start);
-  gain.gain.exponentialRampToValueAtTime(0.22, start + 0.18);
-  gain.gain.exponentialRampToValueAtTime(0.04, start + 2.4);
+  gain.gain.exponentialRampToValueAtTime(0.38 * activeOfflineSettings.crowdVolume, start + 0.18);
+  gain.gain.exponentialRampToValueAtTime(0.055 * activeOfflineSettings.crowdVolume, start + 2.4);
   cheer.buffer = buffer;
   cheer.connect(filter);
   filter.connect(gain);
@@ -12304,7 +12766,10 @@ function aiInput(player: PlayerBody, active: MatchRuntime) {
       }
     }
     const blockers = opponentsBetween(player, new THREE.Vector3(0, 0, attackingZ), active.players, 7.5);
-    const shortTarget = player.role === "keeper" ? null : choosePassTarget(player, active, "short");
+    const defensiveBuildupTarget = player.role === "keeper" || player.line === "defender"
+      ? chooseDefensiveBuildupTarget(player, active)
+      : null;
+    const shortTarget = defensiveBuildupTarget ?? (player.role === "keeper" ? null : choosePassTarget(player, active, "short"));
     const curvedTarget = player.role === "keeper" ? null : chooseCurvedPassTarget(player, active);
     const loftedTarget = player.role === "keeper" ? null : chooseLoftedPassTarget(player, active);
     const keeperBuildupTarget = player.role === "keeper" || !pressured ? null : chooseKeeperBuildupOutlet(player, active);
@@ -12349,7 +12814,7 @@ function aiInput(player: PlayerBody, active: MatchRuntime) {
       ? (pressureCount > 1 ? "long" : "short")
       : forwardIsSafe ? "through" : preferLoftedTarget ? "long" : "short";
     const passTarget = player.role === "keeper"
-      ? choosePassTarget(player, active, passStyle)
+      ? defensiveBuildupTarget ?? choosePassTarget(player, active, passStyle)
       : forwardIsSafe
         ? forwardTarget
         : preferCurvedTarget
@@ -12439,10 +12904,10 @@ function aiInput(player: PlayerBody, active: MatchRuntime) {
         if (acted) active.boxFinishingDecisions += 1;
       }
       if (player.line === "defender" && pressured && ownGoalDistance < 24) {
-        const safeOutlet = choosePassTarget(player, active, "short");
-        const hasSafeOutlet = Boolean(safeOutlet && passIsUseful(player, safeOutlet, active, "short") && nearestOpponentDistance(safeOutlet, active.players) > 3.2);
+        const safeOutlet = chooseDefensiveBuildupTarget(player, active);
+        const hasSafeOutlet = Boolean(safeOutlet && passIsUseful(player, safeOutlet, active, "short") && nearestOpponentDistance(safeOutlet, active.players) > 5.6);
         acted = hasSafeOutlet && pressureCount < 3
-          ? performPass(player, active, "short")
+          ? performValidatedAiPass(player, active, safeOutlet!, "short")
           : pressureCount >= 2 && ownGoalDistance < 18
             ? clearBall(player, active)
             : false;
@@ -12897,13 +13362,26 @@ function clearBall(player: PlayerBody, active: MatchRuntime) {
     }
     return kicked;
   }
-  const safeOutlet = choosePassTarget(player, active, "short");
+  const safeOutlet = chooseDefensiveBuildupTarget(player, active) ?? choosePassTarget(player, active, "short");
   const ownGoalDistance = Math.abs(teamGoalZ(player.team, active.half) - player.pos.z);
   const pressure = opponentPressure(player, active.players, 6);
   if (safeOutlet && passIsUseful(player, safeOutlet, active, "short") && (pressure < 3 || ownGoalDistance > 15)) {
     return performPass(player, active, "short");
   }
   if (pressure < 2 && ownGoalDistance > 18) return false;
+  const controlledClearance = chooseControlledClearanceTarget(player, active);
+  if (controlledClearance) {
+    return kickTowardPoint(
+      player,
+      controlledClearance.target,
+      active,
+      "long",
+      controlledClearance.candidate,
+      tacticalChargeForKick("long", controlledClearance.distance),
+      false,
+      "clearance",
+    );
+  }
   const attackSign = Math.sign(attackingGoalZ(player.team, active.half));
   const distance = 42;
   const lateral = (player.number % 2 === 0 ? 1 : -1) * 12;
@@ -14937,7 +15415,7 @@ function updateKickTrajectoryPreview(
   if (style === "long") {
     const landing = landingPoint ?? point;
     active.kickLandingZone.position.set(landing.x, LANDING_MARKER_Y, landing.z);
-    active.kickLandingZone.scale.setScalar(0.82 + chargeProgress * 0.24);
+    active.kickLandingZone.scale.setScalar(1);
     active.renderer.domElement.dataset.loftLandingX = landing.x.toFixed(3);
     active.renderer.domElement.dataset.loftLandingY = LANDING_MARKER_Y.toFixed(3);
     active.renderer.domElement.dataset.loftLandingZ = landing.z.toFixed(3);
@@ -16205,6 +16683,7 @@ function performPassTo(player: PlayerBody, active: MatchRuntime, teammate: Playe
     player.supportRunTimer = 1.9;
     player.supportRunTarget.copy(player.pos).add(new THREE.Vector3(clamp(-player.pos.x * 0.16, -4, 4), 0, attackSign * 18));
   }
+  if (passed && !manuallyControlled && active.frameCount % 4 === 0) playCommentary(active, "buildup");
   return passed;
 }
 
@@ -16387,6 +16866,102 @@ function performLoftedPassTo(player: PlayerBody, active: MatchRuntime, teammate:
 function performPass(player: PlayerBody, active: MatchRuntime, style: "short" | "long" | "through" | "low-through", oneTwo = false) {
   const teammate = choosePassTarget(player, active, style);
   return teammate ? performPassTo(player, active, teammate, style, oneTwo) : false;
+}
+
+function chooseDefensiveBuildupTarget(player: PlayerBody, active: MatchRuntime) {
+  const ownGoalZ = teamGoalZ(player.team, active.half);
+  const attackSign = Math.sign(attackingGoalZ(player.team, active.half));
+  return active.players
+    .filter((candidate) => (
+      candidate.team === player.team
+      && candidate.id !== player.id
+      && !candidate.sentOff
+      && (candidate.role !== "keeper" || player.role !== "keeper")
+    ))
+    .map((candidate) => {
+      const target = kickTargetForStyle(player, active, candidate, "short");
+      const distance = target.distanceTo(player.pos);
+      const laneBlockers = opponentsBetween(player, target, active.players, 3.85);
+      const receiverPressure = opponentPressureAtPoint(player.team, target, active.players, candidate.role === "keeper" ? 9.2 : 6.8);
+      const open = nearestOpponentDistance(candidate, active.players);
+      const forward = (candidate.pos.z - player.pos.z) * attackSign;
+      const towardOwnGoal = Math.abs(candidate.pos.z - ownGoalZ) < Math.abs(player.pos.z - ownGoalZ) - 2.5;
+      const touchlineRisk = Math.max(0, Math.abs(target.x) - (FIELD_W / 2 - 10));
+      const goalLineRisk = Math.max(0, 12 - Math.abs(target.z - ownGoalZ));
+      const receiverMovingAwayFromPressure = candidate.vel.lengthSq() > 0.3
+        && nearestOpponentTo(candidate, active.players)
+        ? candidate.vel.clone().setY(0).dot(
+          candidate.pos.clone().sub(nearestOpponentTo(candidate, active.players)?.pos ?? candidate.pos).setY(0),
+        ) > 0
+        : false;
+      const roleValue = candidate.line === "midfielder"
+        ? 13
+        : candidate.line === "defender"
+          ? 8
+          : candidate.role === "keeper"
+            ? 5
+            : 2;
+      const score = roleValue
+        + clamp(open, 0, 14) * 3
+        + clamp(forward, -8, 18) * 0.7
+        + (receiverMovingAwayFromPressure ? 4 : 0)
+        - laneBlockers * 32
+        - receiverPressure * 20
+        - touchlineRisk * 3.2
+        - goalLineRisk * 1.5
+        - (towardOwnGoal ? 8 : 0)
+        - Math.abs(distance - 24) * 0.45;
+      return {
+        candidate,
+        score,
+        distance,
+        laneBlockers,
+        receiverPressure,
+        open,
+        touchlineRisk,
+        target,
+      };
+    })
+    .filter(({ distance, laneBlockers, receiverPressure, open, touchlineRisk, target, candidate }) => (
+      distance >= 7.5
+      && distance <= 48
+      && laneBlockers === 0
+      && receiverPressure === 0
+      && open >= (candidate.role === "keeper" ? 9 : 5.8)
+      && touchlineRisk < 4.5
+      && target.distanceTo(candidate.pos) < 4.5
+    ))
+    .sort((a, b) => b.score - a.score)[0]?.candidate ?? null;
+}
+
+function chooseControlledClearanceTarget(player: PlayerBody, active: MatchRuntime) {
+  const attackSign = Math.sign(attackingGoalZ(player.team, active.half));
+  return active.players
+    .filter((candidate) => (
+      candidate.team === player.team
+      && candidate.id !== player.id
+      && candidate.role !== "keeper"
+      && !candidate.sentOff
+    ))
+    .map((candidate) => {
+      const target = candidate.pos.clone().addScaledVector(candidate.vel, 0.38).setY(BALL_RADIUS);
+      const distance = player.pos.distanceTo(target);
+      const forward = (target.z - player.pos.z) * attackSign;
+      const pressure = opponentPressureAtPoint(player.team, target, active.players, 8.2);
+      const open = nearestOpponentDistance(candidate, active.players);
+      const laneBlockers = opponentsBetween(player, target, active.players, 5.2);
+      return {
+        candidate,
+        score: forward * 0.72 + open * 2.4 - pressure * 24 - laneBlockers * 5 - Math.abs(distance - 48) * 0.3,
+        target,
+        distance,
+        forward,
+        pressure,
+        open,
+      };
+    })
+    .filter(({ distance, forward, pressure, open }) => distance > 28 && distance < 68 && forward > 8 && pressure === 0 && open > 6.5)
+    .sort((a, b) => b.score - a.score)[0] ?? null;
 }
 
 function chooseKeeperBuildupOutlet(player: PlayerBody, active: MatchRuntime) {
@@ -16705,6 +17280,10 @@ function shoot(player: PlayerBody, active: MatchRuntime, style: "shot" | "driven
   const kicked = kickTowardPoint(player, correctedTarget, active, style, undefined, kickCharge);
   if (kicked && aiControlled) {
     active.renderer.domElement.dataset.acceptedAiShots = String(Number(active.renderer.domElement.dataset.acceptedAiShots ?? "0") + 1);
+  }
+  if (kicked) {
+    playCrowdReaction(active, 0.3, 0.52);
+    playCommentary(active, "shot");
   }
   return kicked;
 }
