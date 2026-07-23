@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { GraduationCap, Keyboard, Play, RotateCcw, Settings, SkipForward, X } from "lucide-react";
 import { getSupabaseClient } from "@/lib/supabase";
 
@@ -222,7 +223,7 @@ type FormationKey = "4-2-3-1" | "4-3-3" | "4-4-2" | "3-5-2";
 type OfflineSettings = {
   formation: Extract<FormationKey, "4-3-3" | "4-4-2">;
   homeColor: string;
-  strikerProfile: StrikerProfile;
+  selectedPlayersBySlot: Record<string, StrikerProfile>;
 };
 
 type TutorialLessonDefinition = {
@@ -509,6 +510,18 @@ const GRASS_STRIPE_WIDTH = 8;
 const PITCH_SURFACE_Y = 0.012;
 const LANDING_MARKER_Y = 0.035;
 const HEAD_COLLIDER_RADIUS = 0.3;
+const LOCOMOTION_STRIDE_LENGTHS = {
+  walk: 2,
+  jog: 3.4,
+  run: 4.8,
+  sprint: 6,
+} as const;
+const LOCOMOTION_REFERENCE_SPEEDS = {
+  walk: 1.6,
+  jog: 3.8,
+  run: 6.8,
+  sprint: 9.5,
+} as const;
 const ADVERTISING_BRANDS = [
   { name: "NOVA STRIDE", background: "#0b1833", accent: "#4de8ff" },
   { name: "PULSE+", background: "#4b1021", accent: "#ffcf4d" },
@@ -535,7 +548,7 @@ const HOME_KIT = {
 const DEFAULT_OFFLINE_SETTINGS: OfflineSettings = {
   formation: "4-3-3",
   homeColor: HOME_KIT.primary,
-  strikerProfile: "default",
+  selectedPlayersBySlot: {},
 };
 
 const TUTORIAL_LESSONS: TutorialLessonDefinition[] = [
@@ -617,10 +630,19 @@ function sanitizeHomeColor(value: string) {
 
 function normalizeOfflineSettings(value: Partial<OfflineSettings> | null | undefined): OfflineSettings {
   const formation = value?.formation === "4-4-2" ? "4-4-2" : "4-3-3";
+  const legacyProfile = (value as Partial<OfflineSettings> & { strikerProfile?: StrikerProfile } | null | undefined)?.strikerProfile;
+  const selectedPlayersBySlot: Record<string, StrikerProfile> = value?.selectedPlayersBySlot && typeof value.selectedPlayersBySlot === "object"
+    ? Object.fromEntries(Object.entries(value.selectedPlayersBySlot).map(([slot, profile]) => [
+      slot,
+      profile === "haaland" ? "haaland" : "default",
+    ])) as Record<string, StrikerProfile>
+    : legacyProfile === "haaland"
+      ? { [formation === "4-4-2" ? "LST" : "ST"]: "haaland" as const }
+      : {};
   return {
     formation,
     homeColor: sanitizeHomeColor(value?.homeColor ?? DEFAULT_OFFLINE_SETTINGS.homeColor),
-    strikerProfile: value?.strikerProfile === "haaland" ? "haaland" : "default",
+    selectedPlayersBySlot,
   };
 }
 
@@ -1155,7 +1177,7 @@ function sharedLambertMaterial(color: string) {
   const key = `lambert:${color}`;
   const existing = sharedMaterialCache.get(key);
   if (existing instanceof THREE.MeshLambertMaterial) return existing;
-  const material = new THREE.MeshLambertMaterial({ color });
+  const material = new THREE.MeshLambertMaterial({ color, side: THREE.FrontSide });
   material.userData.shared = true;
   sharedMaterialCache.set(key, material);
   return material;
@@ -1165,7 +1187,7 @@ function sharedBasicMaterial(color: string) {
   const key = `basic:${color}`;
   const existing = sharedMaterialCache.get(key);
   if (existing instanceof THREE.MeshBasicMaterial) return existing;
-  const material = new THREE.MeshBasicMaterial({ color });
+  const material = new THREE.MeshBasicMaterial({ color, side: THREE.FrontSide });
   material.userData.shared = true;
   sharedMaterialCache.set(key, material);
   return material;
@@ -1238,6 +1260,7 @@ function syncRuntimeDiagnostics(active: MatchRuntime) {
   const canvas = active.renderer.domElement;
   canvas.dataset.phase = active.phase;
   canvas.dataset.ballState = active.ballState;
+  canvas.dataset.ballOwnerId = active.ballOwnerId ?? "";
   canvas.dataset.ballSpeed = active.ballVel.length().toFixed(2);
   canvas.dataset.ballX = active.ballPos.x.toFixed(3);
   canvas.dataset.ballY = active.ballPos.y.toFixed(3);
@@ -1254,6 +1277,11 @@ function syncRuntimeDiagnostics(active: MatchRuntime) {
   canvas.dataset.p1Autopilot = String(active.p1Autopilot);
   canvas.dataset.sceneNodes = String(sceneNodeCount);
   canvas.dataset.playerCount = String(active.players.length);
+  canvas.dataset.haalandPlayers = JSON.stringify(active.players
+    .filter((player) => player.profile === "haaland")
+    .map((player) => ({ id: player.id, team: player.team, slot: player.formationSlot })));
+  canvas.dataset.visibleHaalandLabels = String(active.players
+    .filter((player) => player.possessionLabel?.visible).length);
   canvas.dataset.colliderCount = String(active.players.length + 1);
   canvas.dataset.timerCount = String(active.scheduledTimeouts.size);
   canvas.dataset.audioSourceCount = String(active.activeAudioSources.size);
@@ -1640,9 +1668,11 @@ function createEllipticalSectionGeometry(
   positions.push(0, rings[rings.length - 1].y, 0);
   for (let segment = 0; segment < radialSegments; segment += 1) {
     const next = (segment + 1) % radialSegments;
-    indices.push(bottomCenter, next, segment);
+    // Ring vertices advance counter-clockwise in X/Z. The bottom and top
+    // caps need opposite winding so FrontSide culling keeps both exteriors.
+    indices.push(bottomCenter, segment, next);
     const topOffset = (rings.length - 1) * radialSegments;
-    indices.push(topCenter, topOffset + segment, topOffset + next);
+    indices.push(topCenter, topOffset + next, topOffset + segment);
   }
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geometry.setIndex(indices);
@@ -1657,7 +1687,7 @@ function createTorsoGeometry() {
     { y: 0.08, radiusX: 0.48, radiusZ: 0.26 },
     { y: 0.45, radiusX: 0.57, radiusZ: 0.29 },
     { y: 0.64, radiusX: 0.5, radiusZ: 0.25 },
-  ], 10);
+  ], 12);
 }
 
 function createPelvisGeometry() {
@@ -1665,7 +1695,66 @@ function createPelvisGeometry() {
     { y: -0.25, radiusX: 0.35, radiusZ: 0.21 },
     { y: 0.01, radiusX: 0.42, radiusZ: 0.25 },
     { y: 0.24, radiusX: 0.36, radiusZ: 0.22 },
-  ], 8);
+  ], 10);
+}
+
+function createShirtHemGeometry() {
+  return createEllipticalSectionGeometry([
+    { y: -0.08, radiusX: 0.34, radiusZ: 0.215 },
+    { y: 0.08, radiusX: 0.37, radiusZ: 0.23 },
+  ], 12);
+}
+
+function createUpperArmGeometry() {
+  return createEllipticalSectionGeometry([
+    { y: -0.24, radiusX: 0.1, radiusZ: 0.09 },
+    { y: -0.08, radiusX: 0.12, radiusZ: 0.105 },
+    { y: 0.1, radiusX: 0.135, radiusZ: 0.12 },
+    { y: 0.24, radiusX: 0.15, radiusZ: 0.135 },
+  ], 10);
+}
+
+function createForearmGeometry() {
+  return createEllipticalSectionGeometry([
+    { y: -0.26, radiusX: 0.085, radiusZ: 0.075 },
+    { y: -0.08, radiusX: 0.095, radiusZ: 0.085 },
+    { y: 0.1, radiusX: 0.105, radiusZ: 0.095 },
+    { y: 0.22, radiusX: 0.09, radiusZ: 0.08 },
+  ], 10);
+}
+
+function createSleeveGeometry() {
+  return createEllipticalSectionGeometry([
+    { y: -0.19, radiusX: 0.13, radiusZ: 0.12 },
+    { y: -0.02, radiusX: 0.15, radiusZ: 0.135 },
+    { y: 0.14, radiusX: 0.17, radiusZ: 0.15 },
+  ], 10);
+}
+
+function createThighGeometry() {
+  return createEllipticalSectionGeometry([
+    { y: -0.3, radiusX: 0.145, radiusZ: 0.13 },
+    { y: -0.12, radiusX: 0.175, radiusZ: 0.155 },
+    { y: 0.12, radiusX: 0.19, radiusZ: 0.17 },
+    { y: 0.3, radiusX: 0.205, radiusZ: 0.18 },
+  ], 10);
+}
+
+function createCalfGeometry() {
+  return createEllipticalSectionGeometry([
+    { y: -0.29, radiusX: 0.09, radiusZ: 0.08 },
+    { y: -0.08, radiusX: 0.135, radiusZ: 0.12 },
+    { y: 0.13, radiusX: 0.155, radiusZ: 0.135 },
+    { y: 0.25, radiusX: 0.13, radiusZ: 0.115 },
+  ], 10);
+}
+
+function createShortsLegGeometry() {
+  return createEllipticalSectionGeometry([
+    { y: -0.2, radiusX: 0.2, radiusZ: 0.18 },
+    { y: 0.04, radiusX: 0.22, radiusZ: 0.2 },
+    { y: 0.18, radiusX: 0.21, radiusZ: 0.19 },
+  ], 10);
 }
 
 function createFootballBootGeometry() {
@@ -1740,6 +1829,9 @@ function makeHumanFigure({
   const torso = new THREE.Mesh(sharedGeometry("player-torso-athletic", createTorsoGeometry), shirtMaterial);
   torso.name = "torso";
   torso.position.y = 0.43;
+  const shirtHem = new THREE.Mesh(sharedGeometry("player-shirt-hem-closed", createShirtHemGeometry), shirtMaterial);
+  shirtHem.name = "shirt-hem";
+  shirtHem.position.y = -0.14;
   const chestRoot = new THREE.Group();
   chestRoot.name = "chest-root";
   chestRoot.position.y = 0.36;
@@ -1785,22 +1877,22 @@ function makeHumanFigure({
     shoulder.name = side < 0 ? "left-arm" : "right-arm";
     shoulder.position.set(side * (profile === "haaland" ? 0.27 : 0.24), 0, 0);
     shoulder.rotation.z = side * 0.105;
-    const sleeve = new THREE.Mesh(sharedGeometry("player-shirt-sleeve", () => new THREE.CapsuleGeometry(0.13, 0.18, 2, 7)), shirtMaterial);
-    sleeve.position.y = -0.11;
-    const upperArm = new THREE.Mesh(sharedGeometry("player-upper-arm", () => new THREE.CapsuleGeometry(0.108, 0.3, 2, 7)), skinMaterial);
-    upperArm.position.y = -0.31;
+    const sleeve = new THREE.Mesh(sharedGeometry("player-shirt-sleeve-closed", createSleeveGeometry), shirtMaterial);
+    sleeve.position.y = -0.08;
+    const upperArm = new THREE.Mesh(sharedGeometry("player-upper-arm-tapered", createUpperArmGeometry), skinMaterial);
+    upperArm.position.y = -0.32;
     const elbow = new THREE.Group();
     elbow.name = side < 0 ? "left-elbow" : "right-elbow";
     elbow.position.y = -0.53;
     // Elbow animation uses one positive local-X hinge convention on both sides.
     // The relaxed bend is supplied by locomotion rather than baked into rest.
     elbow.rotation.x = 0;
-    const forearm = new THREE.Mesh(sharedGeometry("player-forearm", () => new THREE.CapsuleGeometry(0.09, 0.33, 2, 6)), skinMaterial);
-    forearm.position.y = -0.25;
+    const forearm = new THREE.Mesh(sharedGeometry("player-forearm-tapered", createForearmGeometry), skinMaterial);
+    forearm.position.y = -0.24;
     const hand = new THREE.Mesh(sharedGeometry("player-hand", () => new THREE.SphereGeometry(0.105, 6, 5)), skinMaterial);
     hand.name = side < 0 ? "left-hand" : "right-hand";
     hand.scale.set(0.82, 1.12, 0.72);
-    hand.position.y = -0.52;
+    hand.position.y = -0.5;
     elbow.add(forearm, hand);
     shoulder.add(sleeve, upperArm, elbow);
     clavicle.add(shoulder);
@@ -1812,21 +1904,19 @@ function makeHumanFigure({
     leg.name = side < 0 ? "left-leg" : "right-leg";
     leg.position.set(side * 0.225, -0.03, 0);
     if (profile === "haaland") leg.scale.y = 1.075;
-    const shortsLeg = new THREE.Mesh(sharedGeometry("player-shorts-leg", () => new THREE.CapsuleGeometry(0.18, 0.18, 2, 7)), shortsMaterial);
-    shortsLeg.position.y = -0.13;
-    const thigh = new THREE.Mesh(sharedGeometry("player-thigh", () => new THREE.CapsuleGeometry(0.17, 0.37, 2, 7)), skinMaterial);
+    const shortsLeg = new THREE.Mesh(sharedGeometry("player-shorts-leg-closed", createShortsLegGeometry), shortsMaterial);
+    shortsLeg.position.y = -0.12;
+    const thigh = new THREE.Mesh(sharedGeometry("player-thigh-tapered", createThighGeometry), skinMaterial);
     thigh.name = side < 0 ? "left-thigh" : "right-thigh";
-    thigh.scale.set(1.04, 1, 0.96);
-    thigh.position.y = -0.35;
+    thigh.position.y = -0.38;
     const knee = new THREE.Group();
     knee.name = side < 0 ? "left-knee" : "right-knee";
     knee.position.y = -0.72;
     const kneecap = new THREE.Mesh(sharedGeometry("player-kneecap", () => new THREE.SphereGeometry(0.14, 6, 5)), skinMaterial);
     kneecap.scale.set(1, 0.9, 0.92);
-    const calf = new THREE.Mesh(sharedGeometry("player-calf", () => new THREE.CapsuleGeometry(0.135, 0.34, 2, 7)), sockMaterial);
+    const calf = new THREE.Mesh(sharedGeometry("player-calf-shaped", createCalfGeometry), sockMaterial);
     calf.name = side < 0 ? "left-calf" : "right-calf";
-    calf.scale.set(1.04, 1, 0.92);
-    calf.position.y = -0.3;
+    calf.position.y = -0.28;
     const ankle = new THREE.Group();
     ankle.name = side < 0 ? "left-foot" : "right-foot";
     ankle.position.y = -0.62;
@@ -1863,7 +1953,7 @@ function makeHumanFigure({
   neckBase.add(neckBaseMesh, neckTop);
   chestRoot.add(collar, neckBase);
   spineUpper.add(chestRoot);
-  spineLower.add(torso, spineUpper);
+  spineLower.add(torso, shirtHem, spineUpper);
   pelvisRoot.add(hip, spineLower);
   bodyRoot.add(pelvisRoot);
   if (numberPanel) bodyRoot.add(numberPanel);
@@ -1878,15 +1968,18 @@ function makeHumanFigure({
 
   if (profile === "haaland") {
     const labelCanvas = document.createElement("canvas");
-    labelCanvas.width = 512;
-    labelCanvas.height = 128;
+    labelCanvas.width = 1024;
+    labelCanvas.height = 256;
     const labelContext = labelCanvas.getContext("2d");
     if (labelContext) {
       labelContext.clearRect(0, 0, labelCanvas.width, labelCanvas.height);
-      labelContext.font = "900 72px Arial, sans-serif";
+      labelContext.fillStyle = "rgba(4, 12, 9, 0.82)";
+      labelContext.roundRect(74, 30, 876, 196, 42);
+      labelContext.fill();
+      labelContext.font = "900 144px Arial, sans-serif";
       labelContext.textAlign = "center";
       labelContext.textBaseline = "middle";
-      labelContext.lineWidth = 12;
+      labelContext.lineWidth = 18;
       labelContext.strokeStyle = "rgba(0,0,0,0.8)";
       labelContext.strokeText("HAALAND", labelCanvas.width / 2, labelCanvas.height / 2);
       labelContext.fillStyle = "#ffffff";
@@ -1904,8 +1997,8 @@ function makeHumanFigure({
       depthWrite: false,
     }));
     label.name = "haaland-possession-label";
-    label.position.set(0, 3.75, 0);
-    label.scale.set(2.8, 0.7, 1);
+    label.position.set(0, 4.55, 0);
+    label.scale.set(8.8, 2.2, 1);
     label.renderOrder = 30;
     label.visible = false;
     group.add(label);
@@ -2192,15 +2285,17 @@ function addPitchBoundaryMarking(scene: THREE.Scene) {
 }
 
 function addPitch(scene: THREE.Scene) {
-  const runoff = new THREE.Mesh(
+  const grassWidth = FIELD_W + TOUCHLINE_RUNOFF * 2;
+  const grassLength = FIELD_L + GOAL_LINE_RUNOFF * 2;
+  const grassBase = new THREE.Mesh(
     new THREE.BoxGeometry(FIELD_W + TOUCHLINE_RUNOFF * 2, 0.16, FIELD_L + GOAL_LINE_RUNOFF * 2),
-    new THREE.MeshLambertMaterial({ color: "#687477" }),
+    new THREE.MeshLambertMaterial({ color: GRASS_DARK_COLOR, side: THREE.FrontSide }),
   );
-  runoff.name = "neutral-pitch-runoff";
-  runoff.position.y = -0.14;
-  scene.add(runoff);
+  grassBase.name = "continuous-grass-support-base";
+  grassBase.position.y = -0.08;
+  scene.add(grassBase);
 
-  const stripeCount = Math.ceil(FIELD_L / GRASS_STRIPE_WIDTH);
+  const stripeCount = Math.ceil(grassLength / GRASS_STRIPE_WIDTH);
   const grassCanvas = document.createElement("canvas");
   grassCanvas.width = 256;
   grassCanvas.height = stripeCount * 32;
@@ -2225,15 +2320,17 @@ function addPitch(scene: THREE.Scene) {
   grassTexture.minFilter = THREE.LinearFilter;
   grassTexture.magFilter = THREE.LinearFilter;
   const pitch = new THREE.Mesh(
-    new THREE.PlaneGeometry(FIELD_W, FIELD_L, 1, 1),
-    new THREE.MeshLambertMaterial({ map: grassTexture, color: "#ffffff" }),
+    new THREE.PlaneGeometry(grassWidth, grassLength, 1, 1),
+    new THREE.MeshLambertMaterial({ map: grassTexture, color: "#ffffff", side: THREE.FrontSide }),
   );
-  pitch.name = "single-striped-pitch-surface";
+  pitch.name = "single-continuous-striped-grass-surface";
   pitch.rotation.x = -Math.PI / 2;
   pitch.position.y = PITCH_SURFACE_Y;
   pitch.receiveShadow = true;
   pitch.userData.stripeCount = stripeCount;
-  pitch.userData.stripeWidth = FIELD_L / stripeCount;
+  pitch.userData.stripeWidth = grassLength / stripeCount;
+  pitch.userData.surfaceWidth = grassWidth;
+  pitch.userData.surfaceLength = grassLength;
   pitch.userData.darkGrass = GRASS_DARK_COLOR;
   pitch.userData.lightGrass = GRASS_LIGHT_COLOR;
   scene.add(pitch);
@@ -2568,32 +2665,18 @@ function createAdvertisingCornerSolidGeometry(
 }
 
 function createStadiumSeatGeometry() {
-  const halfWidth = 0.43;
-  const halfDepth = 0.27;
-  const positions = [
-    // Seat pan.
-    -halfWidth, 0.32, -halfDepth,
-    halfWidth, 0.32, -halfDepth,
-    halfWidth, 0.32, halfDepth,
-    -halfWidth, 0.32, halfDepth,
-    // Reclined seat back.
-    -halfWidth, 0.32, halfDepth,
-    halfWidth, 0.32, halfDepth,
-    halfWidth, 1.02, halfDepth + 0.12,
-    -halfWidth, 1.02, halfDepth + 0.12,
-    // Front fascia, visible from the pitch on lower rows.
-    -halfWidth, 0.16, -halfDepth,
-    halfWidth, 0.16, -halfDepth,
-    halfWidth, 0.32, -halfDepth,
-    -halfWidth, 0.32, -halfDepth,
-  ];
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setIndex([
-    0, 1, 2, 0, 2, 3,
-    4, 5, 6, 4, 6, 7,
-    8, 9, 10, 8, 10, 11,
-  ]);
+  const pan = new THREE.BoxGeometry(0.84, 0.13, 0.54);
+  pan.translate(0, 0.18, -0.01);
+  const back = new THREE.BoxGeometry(0.84, 0.68, 0.12);
+  back.rotateX(-0.13);
+  back.translate(0, 0.55, 0.25);
+  const support = new THREE.BoxGeometry(0.12, 0.24, 0.12);
+  support.translate(0, 0.1, 0.08);
+  const geometry = mergeGeometries([pan, back, support], false);
+  pan.dispose();
+  back.dispose();
+  support.dispose();
+  if (!geometry) throw new Error("Unable to build stadium seat geometry");
   geometry.computeVertexNormals();
   return geometry;
 }
@@ -2737,26 +2820,26 @@ function addLightweightStadium(scene: THREE.Scene) {
   const upperConcrete = new THREE.MeshLambertMaterial({ color: "#263641" });
   const innerWidth = runoffWidth + 0.5;
   const innerLength = runoffLength + 0.5;
-  const tiers = [
-    { inset: 0, out: 5.7, height: 3, innerRadius: 4.2, outerRadius: 7.4, material: concrete },
-    { inset: 16.8, out: 18.15, height: 7.75, innerRadius: 12.2, outerRadius: 13.1, material: upperConcrete },
-    { inset: 28.25, out: 29.65, height: 13.75, innerRadius: 18.6, outerRadius: 19.5, material: concrete },
-    { inset: 40.4, out: 42.2, height: 20.45, innerRadius: 25.2, outerRadius: 26.3, material: upperConcrete },
-    { inset: 42.0, out: 57.4, height: 22.8, innerRadius: 26.1, outerRadius: 34.5, material: upperConcrete },
+  const concourses = [
+    { inset: 3.8, out: 6.2, y: 2.72, radius: 7.2, material: concrete },
+    { inset: 16.3, out: 19.4, y: 8.76, radius: 13.6, material: upperConcrete },
+    { inset: 28.1, out: 31.4, y: 15.35, radius: 20.5, material: concrete },
+    { inset: 41.2, out: 57.4, y: 22.8, radius: 27.4, material: upperConcrete },
   ];
-  tiers.forEach((tier) => {
+  concourses.forEach((concourse) => {
     const ring = new THREE.Mesh(
       stadiumRingGeometry(
-        innerWidth + tier.inset,
-        innerLength + tier.inset,
-        innerWidth + tier.out,
-        innerLength + tier.out,
-        tier.innerRadius,
-        tier.outerRadius,
-        tier.height,
+        innerWidth + concourse.inset,
+        innerLength + concourse.inset,
+        innerWidth + concourse.out,
+        innerLength + concourse.out,
+        concourse.radius,
+        concourse.radius + 2.4,
+        0.34,
       ),
-      tier.material,
+      concourse.material,
     );
+    ring.position.y = concourse.y;
     ring.receiveShadow = false;
     stadium.add(ring);
   });
@@ -2812,9 +2895,9 @@ function addLightweightStadium(scene: THREE.Scene) {
   stadium.add(roofFascia);
 
   const decks: StadiumDeck[] = [
-    { startOffset: 5.8, startY: 3.08, rows: 11, rowDepth: 1.08, rowRise: 0.42 },
-    { startOffset: 18.2, startY: 8.05, rows: 9, rowDepth: 1.12, rowRise: 0.49 },
-    { startOffset: 29.6, startY: 14.05, rows: 11, rowDepth: 1.08, rowRise: 0.55 },
+    { startOffset: 5.8, startY: 3.08, rows: 11, rowDepth: 1.05, rowRise: 0.54 },
+    { startOffset: 19.2, startY: 9.65, rows: 9, rowDepth: 1.08, rowRise: 0.58 },
+    { startOffset: 31.0, startY: 16.15, rows: 11, rowDepth: 1.08, rowRise: 0.64 },
   ];
   const sidelineAisles = [-0.33, -0.11, 0.11, 0.33].map((value) => value * runoffLength);
   const endAisles = [-0.27, 0, 0.27].map((value) => value * runoffWidth);
@@ -2829,10 +2912,99 @@ function addLightweightStadium(scene: THREE.Scene) {
     });
   };
 
+  const treadPlacements: Array<{ position: THREE.Vector3; scale: THREE.Vector3; rotationY: number }> = [];
+  const riserPlacements: Array<{ position: THREE.Vector3; scale: THREE.Vector3; rotationY: number }> = [];
+  const straightSideLength = runoffLength - 14.4;
+  const straightEndLength = runoffWidth - 14.4;
+  const cornerSegments = 12;
+  decks.forEach((deck) => {
+    for (let row = 0; row < deck.rows; row += 1) {
+      const rowOffset = deck.startOffset + row * deck.rowDepth;
+      const treadY = deck.startY + row * deck.rowRise;
+      const priorY = row === 0 ? deck.startY - 0.36 : treadY - deck.rowRise;
+      const riserHeight = treadY - priorY;
+      for (const side of [-1, 1]) {
+        treadPlacements.push({
+          position: new THREE.Vector3(side * (runoffWidth / 2 + rowOffset + deck.rowDepth / 2), treadY - 0.08, 0),
+          scale: new THREE.Vector3(deck.rowDepth, 0.16, straightSideLength),
+          rotationY: 0,
+        });
+        riserPlacements.push({
+          position: new THREE.Vector3(side * (runoffWidth / 2 + rowOffset), priorY + riserHeight / 2, 0),
+          scale: new THREE.Vector3(0.18, riserHeight, straightSideLength),
+          rotationY: 0,
+        });
+        treadPlacements.push({
+          position: new THREE.Vector3(0, treadY - 0.08, side * (runoffLength / 2 + rowOffset + deck.rowDepth / 2)),
+          scale: new THREE.Vector3(straightEndLength, 0.16, deck.rowDepth),
+          rotationY: 0,
+        });
+        riserPlacements.push({
+          position: new THREE.Vector3(0, priorY + riserHeight / 2, side * (runoffLength / 2 + rowOffset)),
+          scale: new THREE.Vector3(straightEndLength, riserHeight, 0.18),
+          rotationY: 0,
+        });
+      }
+      const cornerCenterX = runoffWidth / 2 - 7.2;
+      const cornerCenterZ = runoffLength / 2 - 7.2;
+      const treadRadius = rowOffset + 7.2 + deck.rowDepth / 2;
+      const riserRadius = rowOffset + 7.2;
+      const arcLength = Math.PI * treadRadius / 2 / cornerSegments * 1.04;
+      for (const xSide of [-1, 1]) {
+        for (const zSide of [-1, 1]) {
+          for (let segment = 0; segment < cornerSegments; segment += 1) {
+            const angle = (segment + 0.5) / cornerSegments * Math.PI / 2;
+            const rotationY = -xSide * zSide * angle;
+            treadPlacements.push({
+              position: new THREE.Vector3(
+                xSide * (cornerCenterX + Math.cos(angle) * treadRadius),
+                treadY - 0.08,
+                zSide * (cornerCenterZ + Math.sin(angle) * treadRadius),
+              ),
+              scale: new THREE.Vector3(deck.rowDepth * 1.06, 0.16, arcLength),
+              rotationY,
+            });
+            riserPlacements.push({
+              position: new THREE.Vector3(
+                xSide * (cornerCenterX + Math.cos(angle) * riserRadius),
+                priorY + riserHeight / 2,
+                zSide * (cornerCenterZ + Math.sin(angle) * riserRadius),
+              ),
+              scale: new THREE.Vector3(0.18, riserHeight, arcLength),
+              rotationY,
+            });
+          }
+        }
+      }
+    }
+  });
+  const unitBox = new THREE.BoxGeometry(1, 1, 1);
+  const treadMaterial = new THREE.MeshLambertMaterial({ color: "#667984", side: THREE.FrontSide });
+  const riserMaterial = new THREE.MeshLambertMaterial({ color: "#425560", side: THREE.FrontSide });
+  const terraceTreads = new THREE.InstancedMesh(unitBox, treadMaterial, treadPlacements.length);
+  const terraceRisers = new THREE.InstancedMesh(unitBox, riserMaterial, riserPlacements.length);
+  const terraceMatrix = new THREE.Matrix4();
+  const terraceQuaternion = new THREE.Quaternion();
+  treadPlacements.forEach((placement, index) => {
+    terraceQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), placement.rotationY);
+    terraceMatrix.compose(placement.position, terraceQuaternion, placement.scale);
+    terraceTreads.setMatrixAt(index, terraceMatrix);
+  });
+  riserPlacements.forEach((placement, index) => {
+    terraceQuaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), placement.rotationY);
+    terraceMatrix.compose(placement.position, terraceQuaternion, placement.scale);
+    terraceRisers.setMatrixAt(index, terraceMatrix);
+  });
+  terraceTreads.name = "stadium-physical-terrace-treads";
+  terraceRisers.name = "stadium-physical-terrace-risers";
+  terraceTreads.instanceMatrix.needsUpdate = true;
+  terraceRisers.instanceMatrix.needsUpdate = true;
+  stadium.add(terraceTreads, terraceRisers);
+
   decks.forEach((deck, deckIndex) => {
     for (let row = 0; row < deck.rows; row += 1) {
       const rowOffset = deck.startOffset + row * deck.rowDepth;
-      const y = deck.startY + row * deck.rowRise;
+      const y = deck.startY + row * deck.rowRise + 0.015;
       const sideLimit = runoffLength / 2 - 7.2;
       const sideSeatCount = Math.floor(sideLimit * 2 / seatSpacing);
       for (const side of [-1, 1]) {
@@ -2876,7 +3048,7 @@ function addLightweightStadium(scene: THREE.Scene) {
     }
   });
 
-  const seatMaterial = new THREE.MeshLambertMaterial({ color: "#ffffff", side: THREE.DoubleSide });
+  const seatMaterial = new THREE.MeshLambertMaterial({ color: "#ffffff", side: THREE.FrontSide });
   const stadiumSeats = new THREE.InstancedMesh(createStadiumSeatGeometry(), seatMaterial, seatPlacements.length);
   const instanceMatrix = new THREE.Matrix4();
   const instanceQuaternion = new THREE.Quaternion();
@@ -2899,16 +3071,16 @@ function addLightweightStadium(scene: THREE.Scene) {
   decks.forEach((deck) => {
     for (let row = 0; row < deck.rows; row += 1) {
       const rowOffset = deck.startOffset + row * deck.rowDepth;
-      const y = deck.startY + row * deck.rowRise + 0.05;
+      const y = deck.startY + row * deck.rowRise + 0.04;
       for (const side of [-1, 1]) {
         sidelineAisles.forEach((z) => stairPlacements.push({
           position: new THREE.Vector3(side * (runoffWidth / 2 + rowOffset), y, z),
-          scale: new THREE.Vector3(deck.rowDepth * 0.96, 0.16, 1.52),
+          scale: new THREE.Vector3(deck.rowDepth * 0.96, 0.08, 1.52),
           rotationY: 0,
         }));
         endAisles.forEach((x) => stairPlacements.push({
           position: new THREE.Vector3(x, y, side * (runoffLength / 2 + rowOffset)),
-          scale: new THREE.Vector3(1.52, 0.16, deck.rowDepth * 0.96),
+          scale: new THREE.Vector3(1.52, 0.08, deck.rowDepth * 0.96),
           rotationY: 0,
         }));
       }
@@ -2925,7 +3097,7 @@ function addLightweightStadium(scene: THREE.Scene) {
           );
           stairPlacements.push({
             position,
-            scale: new THREE.Vector3(1.52, 0.16, deck.rowDepth * 0.96),
+            scale: new THREE.Vector3(1.52, 0.08, deck.rowDepth * 0.96),
             rotationY: xSide * zSide * -Math.PI / 4,
           });
         }
@@ -2948,8 +3120,25 @@ function addLightweightStadium(scene: THREE.Scene) {
   stadium.userData.seatingRows = decks.reduce((sum, deck) => sum + deck.rows, 0);
   stadium.userData.seatCount = seatPlacements.length;
   stadium.userData.stairAisles = sidelineAisles.length * 2 + endAisles.length * 2 + 4;
+  stadium.userData.terraceTreadCount = treadPlacements.length;
+  stadium.userData.terraceRiserCount = riserPlacements.length;
+  stadium.userData.terraceRakeDegrees = decks.map((deck) => THREE.MathUtils.radToDeg(Math.atan2(deck.rowRise, deck.rowDepth)));
+  stadium.userData.terraceRowRise = decks.map((deck) => deck.rowRise);
+  stadium.userData.terraceRowDepth = decks.map((deck) => deck.rowDepth);
+  stadium.userData.seatSpacing = seatSpacing;
   stadium.userData.maximumHeight = 37.1;
   stadium.userData.upperTierCount = 3;
+  adTexture.userData.stadiumDiagnostics = {
+    seatingRows: stadium.userData.seatingRows,
+    seatCount: stadium.userData.seatCount,
+    stairAisles: stadium.userData.stairAisles,
+    terraceTreadCount: stadium.userData.terraceTreadCount,
+    terraceRiserCount: stadium.userData.terraceRiserCount,
+    terraceRakeDegrees: stadium.userData.terraceRakeDegrees,
+    terraceRowRise: stadium.userData.terraceRowRise,
+    terraceRowDepth: stadium.userData.terraceRowDepth,
+    seatSpacing,
+  };
 
   scene.add(stadium);
   return adTexture;
@@ -2980,10 +3169,21 @@ function updateAdvertisingBoards(active: MatchRuntime, dt: number) {
   active.renderer.domElement.dataset.adBoardScrollSpeed = AD_BOARD_SCROLL_SPEED.toFixed(3);
   active.renderer.domElement.dataset.adBoardPerimeterLength = Number(active.adBoardTexture.userData.perimeterLength ?? 0).toFixed(3);
   active.renderer.domElement.dataset.adBoardPerimeterSamples = String(active.adBoardTexture.userData.perimeterSampleCount ?? 0);
-  active.renderer.domElement.dataset.pitchStripeCount = String(Math.ceil(FIELD_L / GRASS_STRIPE_WIDTH));
-  active.renderer.domElement.dataset.pitchStripeWidth = (FIELD_L / Math.ceil(FIELD_L / GRASS_STRIPE_WIDTH)).toFixed(3);
+  const continuousGrassLength = FIELD_L + GOAL_LINE_RUNOFF * 2;
+  active.renderer.domElement.dataset.pitchStripeCount = String(Math.ceil(continuousGrassLength / GRASS_STRIPE_WIDTH));
+  active.renderer.domElement.dataset.pitchStripeWidth = (continuousGrassLength / Math.ceil(continuousGrassLength / GRASS_STRIPE_WIDTH)).toFixed(3);
+  active.renderer.domElement.dataset.pitchSurfaceWidth = (FIELD_W + TOUCHLINE_RUNOFF * 2).toFixed(2);
+  active.renderer.domElement.dataset.pitchSurfaceLength = continuousGrassLength.toFixed(2);
   active.renderer.domElement.dataset.pitchDarkGrass = GRASS_DARK_COLOR;
   active.renderer.domElement.dataset.pitchLightGrass = GRASS_LIGHT_COLOR;
+  active.renderer.domElement.dataset.locomotionStrideLengths = JSON.stringify(LOCOMOTION_STRIDE_LENGTHS);
+  active.renderer.domElement.dataset.locomotionReferenceStepsPerSecond = JSON.stringify(Object.fromEntries(
+    Object.entries(LOCOMOTION_STRIDE_LENGTHS).map(([state, stride]) => [
+      state,
+      Number((LOCOMOTION_REFERENCE_SPEEDS[state as keyof typeof LOCOMOTION_REFERENCE_SPEEDS] * 2 / stride).toFixed(2)),
+    ]),
+  ));
+  active.renderer.domElement.dataset.stadiumDiagnostics = JSON.stringify(active.adBoardTexture.userData.stadiumDiagnostics ?? {});
 }
 
 function resolveAdvertisingBoardCollision(active: MatchRuntime) {
@@ -3083,9 +3283,8 @@ function attachDevelopmentRigDebug(mesh: THREE.Group) {
 }
 
 function createPlayer(id: string, team: TeamId, role: PlayerRole, line: PlayerLine, x: number, z: number, number: number, formationSlot: string, controlledBy?: "p1") {
-  const selectedStrikerSlot = formationSlot === "ST" || formationSlot === "LST";
-  const profile: StrikerProfile = team === "home" && role === "field" && selectedStrikerSlot
-    ? activeOfflineSettings.strikerProfile
+  const profile: StrikerProfile = team === "home" && role === "field"
+    ? activeOfflineSettings.selectedPlayersBySlot[formationSlot] ?? "default"
     : "default";
   const mesh = makeKit(team, role, "#ffffff", number, profile);
   attachDevelopmentRigDebug(mesh);
@@ -3503,13 +3702,16 @@ export function ArcadeSoccerGame() {
   const startMatchRef = useRef<(() => void) | null>(null);
   const startTutorialRef = useRef<(() => void) | null>(null);
 
-  const [offlineSettings, setOfflineSettings] = useState<OfflineSettings>(() => {
-    const settings = loadOfflineSettings();
-    activeOfflineSettings = settings;
-    return settings;
-  });
-  const [draftSettings, setDraftSettings] = useState<OfflineSettings>(() => activeOfflineSettings);
+  const [offlineSettings, setOfflineSettings] = useState<OfflineSettings>(() => ({
+    ...DEFAULT_OFFLINE_SETTINGS,
+    selectedPlayersBySlot: {},
+  }));
+  const [draftSettings, setDraftSettings] = useState<OfflineSettings>(() => ({
+    ...DEFAULT_OFFLINE_SETTINGS,
+    selectedPlayersBySlot: {},
+  }));
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [selectedFormationSlot, setSelectedFormationSlot] = useState<string | null>(null);
   const [matchState, setMatchState] = useState<MatchState>("menu");
   const [engineRequested, setEngineRequested] = useState(false);
   const [score, setScore] = useState({ home: 0, away: 0 });
@@ -3543,6 +3745,13 @@ export function ArcadeSoccerGame() {
   }, []);
 
   useEffect(() => {
+    const savedSettings = loadOfflineSettings();
+    activeOfflineSettings = savedSettings;
+    setOfflineSettings(savedSettings);
+    setDraftSettings(savedSettings);
+  }, []);
+
+  useEffect(() => {
     activeOfflineSettings = offlineSettings;
   }, [offlineSettings]);
 
@@ -3556,11 +3765,13 @@ export function ArcadeSoccerGame() {
 
   const openSettings = useCallback(() => {
     setDraftSettings(offlineSettings);
+    setSelectedFormationSlot(null);
     settingsOpenRef.current = true;
     setSettingsOpen(true);
   }, [offlineSettings]);
 
   const closeSettings = useCallback(() => {
+    setSelectedFormationSlot(null);
     settingsOpenRef.current = false;
     setSettingsOpen(false);
   }, []);
@@ -3592,17 +3803,8 @@ export function ArcadeSoccerGame() {
     }
     settingsOpenRef.current = false;
     setSettingsOpen(false);
+    setSelectedFormationSlot(null);
   }, [draftSettings]);
-
-  const selectStrikerProfile = useCallback((strikerProfile: StrikerProfile) => {
-    const next = normalizeOfflineSettings({ ...offlineSettings, strikerProfile });
-    activeOfflineSettings = next;
-    saveOfflineSettings(next);
-    setOfflineSettings(next);
-    setDraftSettings(next);
-    const active = sceneRef.current;
-    if (active && active.state !== "playing") applyOfflineSettingsToRuntime(active);
-  }, [offlineSettings]);
 
   useEffect(() => {
     const visitorId = getAnonymousVisitorId();
@@ -4546,10 +4748,16 @@ export function ArcadeSoccerGame() {
     runtime.renderer.domElement.dataset.kickChargeSamples = JSON.stringify(chargeSamples);
     runtime.renderer.domElement.dataset.kickFullChargeSeconds = simulatedChargeTime.toFixed(3);
     syncRuntimeDiagnostics(runtime);
+    const queryParameters = new URLSearchParams(window.location.search);
+    const slowMotionScale = clamp(Number(queryParameters.get("slowMotion") ?? "1"), 0.1, 1);
+    const haalandPossessionTest = queryParameters.has("haalandPossessionTest");
+    const modelInspectView = queryParameters.get("modelInspect");
+    let haalandPossessionTestApplied = false;
+    runtime.renderer.domElement.dataset.slowMotionScale = slowMotionScale.toFixed(2);
     const requestedGoalKickTests = clamp(
       Number(
-        new URLSearchParams(window.location.search).get("goalKickTest")
-        ?? new URLSearchParams(window.location.search).get("manualGoalKickTest")
+        queryParameters.get("goalKickTest")
+        ?? queryParameters.get("manualGoalKickTest")
         ?? "0",
       ),
       0,
@@ -4884,7 +5092,7 @@ export function ArcadeSoccerGame() {
       if (active.state !== "playing") return;
       const aiStartedAt = performance.now();
       active.matchUpdatesThisFrame = 0;
-      const dt = Math.min(Math.max((now - active.lastMatchUpdate) / 1000, 0), 0.033);
+      const dt = Math.min(Math.max((now - active.lastMatchUpdate) / 1000, 0), 0.033) * slowMotionScale;
       active.lastMatchUpdate = now;
       if (dt <= 0) return;
       const clockBeforeUpdate = active.gameClock;
@@ -4935,6 +5143,19 @@ export function ArcadeSoccerGame() {
           active.ballCurve.set(0, 0, 0);
           adBoardCollisionTestApplied = true;
           active.renderer.domElement.dataset.adBoardCollisionTestApplied = "true";
+        }
+        if (haalandPossessionTest && !haalandPossessionTestApplied && active.phase === "open") {
+          const haaland = active.players.find((player) => player.team === "home" && player.profile === "haaland") ?? null;
+          if (haaland) {
+            releasePossession(active, "loose");
+            haaland.pos.set(0, 0, 4);
+            haaland.vel.set(0, 0, 0);
+            active.ballPos.copy(haaland.pos).add(facingDirection(haaland).multiplyScalar(0.58)).setY(BALL_RADIUS);
+            active.ballVel.set(0, 0, 0);
+            takePossession(haaland, active);
+            haalandPossessionTestApplied = true;
+            active.renderer.domElement.dataset.haalandPossessionTestApplied = "true";
+          }
         }
         if (
           remainingAdBoardCornerTests > 0
@@ -6706,7 +6927,21 @@ export function ArcadeSoccerGame() {
         const blendedFocus = active.ballPos.clone().lerp(playerFocus, 0.22);
         const focusZ = clamp(blendedFocus.z, -FIELD_L / 2 - 10, FIELD_L / 2 + 10);
         const shouldFollowPlay = active.state === "playing" && active.phase !== "halftime";
-        const desired = active.phase === "goal"
+        const inspectPlayer = modelInspectView
+          ? active.players.find((player) => player.profile === "haaland")
+            ?? active.players.find((player) => player.role === "field")
+            ?? null
+          : null;
+        const inspectForward = inspectPlayer ? facingDirection(inspectPlayer) : null;
+        const inspectRight = inspectForward ? new THREE.Vector3(inspectForward.z, 0, -inspectForward.x) : null;
+        const inspectOffset = inspectPlayer && inspectForward && inspectRight
+          ? modelInspectView === "side"
+            ? inspectRight.multiplyScalar(6.3)
+            : inspectForward.multiplyScalar(modelInspectView === "rear" ? -6.3 : 6.3)
+          : null;
+        const desired = inspectPlayer && inspectOffset
+          ? inspectPlayer.pos.clone().add(inspectOffset).add(new THREE.Vector3(0, 2.8, 0))
+          : active.phase === "goal"
           ? active.replayCameraPosition
           : shouldFollowPlay
           ? new THREE.Vector3(BROADCAST_CAMERA_X, BROADCAST_CAMERA_Y, focusZ + BROADCAST_CAMERA_Z_OFFSET)
@@ -6717,7 +6952,9 @@ export function ArcadeSoccerGame() {
           );
         if (active.phase !== "goal") desired.z = clamp(desired.z, -FIELD_L / 2 - 10, FIELD_L / 2 + 10);
         active.camera.position.lerp(desired, active.phase === "goal" ? 1 - Math.pow(0.00002, dt) : shouldFollowPlay ? 1 - Math.pow(0.0008, dt) : 1);
-        const desiredLookAt = active.phase === "goal"
+        const desiredLookAt = inspectPlayer
+          ? inspectPlayer.pos.clone().add(new THREE.Vector3(0, 1.35, 0))
+          : active.phase === "goal"
           ? active.replayCameraLookAt
           : shouldFollowPlay
           ? new THREE.Vector3(BROADCAST_LOOK_AT_X, BROADCAST_LOOK_AT_Y, focusZ)
@@ -6935,16 +7172,22 @@ export function ArcadeSoccerGame() {
     >
       <div ref={mountRef} className="absolute inset-0" aria-label="3D arcade soccer match" />
       {matchState === "playing" && !tutorialUi.active && (
-      <section className="pointer-events-none fixed inset-x-0 top-0 z-40 flex justify-center px-2 pt-[calc(env(safe-area-inset-top)+0.5rem)] sm:px-4">
+      <section className="pointer-events-none fixed inset-x-0 top-0 z-40 flex justify-center px-2 pt-[calc(env(safe-area-inset-top)+0.45rem)] sm:px-4">
         <div
           aria-label="Match scoreboard"
-          className="grid max-w-[calc(100vw-1rem)] grid-cols-[auto_minmax(3.8rem,1fr)_2.3rem_2.3rem_minmax(3.8rem,1fr)] items-stretch overflow-hidden rounded-md border border-white/20 bg-[#07110ee8] text-[10px] font-black uppercase text-white shadow-xl backdrop-blur-md sm:grid-cols-[5.5rem_minmax(6rem,1fr)_3rem_3rem_minmax(6rem,1fr)] sm:text-xs"
+          className="futbol-scoreboard"
         >
-          <span className="grid place-items-center border-r border-white/10 px-2 font-mono text-emerald-100 sm:px-3">{formatSoccerClock(gameClock)}</span>
-          <span className="grid min-w-0 place-items-center truncate border-r border-white/10 px-2 text-rose-100 sm:px-4">Rivals</span>
-          <span className="grid place-items-center bg-rose-400/20 py-2 text-lg text-white sm:text-xl">{score.away}</span>
-          <span className="grid place-items-center bg-cyan-400/20 py-2 text-lg text-white sm:text-xl">{score.home}</span>
-          <span className="grid min-w-0 place-items-center truncate border-l border-white/10 px-2 text-cyan-100 sm:px-4">Futbol</span>
+          <span className="futbol-scoreboard__time">{formatSoccerClock(gameClock)}</span>
+          <span className="futbol-scoreboard__team futbol-scoreboard__team--away">
+            <span className="hidden sm:inline">RIVALS</span>
+            <span className="sm:hidden">RIV</span>
+          </span>
+          <span className="futbol-scoreboard__score futbol-scoreboard__score--away">{score.away}</span>
+          <span className="futbol-scoreboard__score futbol-scoreboard__score--home">{score.home}</span>
+          <span className="futbol-scoreboard__team futbol-scoreboard__team--home">
+            <span className="hidden sm:inline">FUTBOL</span>
+            <span className="sm:hidden">FUT</span>
+          </span>
         </div>
       </section>
       )}
@@ -7075,8 +7318,8 @@ export function ArcadeSoccerGame() {
           <div className="mx-auto my-4 w-full max-w-5xl rounded-md border border-white/15 bg-[#08130d]/95 p-4 shadow-2xl sm:p-5">
             <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="text-2xl font-black">Offline Settings</h2>
-                <p className="mt-1 text-sm text-white/60">Settings are saved locally on this device. Opening this menu pauses the match.</p>
+                <h2 className="text-2xl font-black">Formation & Match Settings</h2>
+                <p className="mt-1 text-sm text-white/60">Choose a formation, then select a striker directly from its formation slot.</p>
               </div>
               <div className="flex gap-2">
                 <button
@@ -7107,7 +7350,18 @@ export function ArcadeSoccerGame() {
                             ? "border-emerald-200 bg-emerald-300/20 text-emerald-50"
                             : "border-white/15 bg-black/25 text-white/75 hover:bg-white/10"
                         }`}
-                        onClick={() => setDraftSettings((current) => normalizeOfflineSettings({ ...current, formation }))}
+                        onClick={() => {
+                          setSelectedFormationSlot(null);
+                          setDraftSettings((current) => {
+                            const currentPrimary = current.formation === "4-4-2" ? "LST" : "ST";
+                            const nextPrimary = formation === "4-4-2" ? "LST" : "ST";
+                            const selectedPlayersBySlot = { ...current.selectedPlayersBySlot };
+                            if (!selectedPlayersBySlot[nextPrimary] && selectedPlayersBySlot[currentPrimary]) {
+                              selectedPlayersBySlot[nextPrimary] = selectedPlayersBySlot[currentPrimary];
+                            }
+                            return normalizeOfflineSettings({ ...current, formation, selectedPlayersBySlot });
+                          });
+                        }}
                       >
                         {formation}
                       </button>
@@ -7137,18 +7391,120 @@ export function ArcadeSoccerGame() {
                     {FORMATION_OPTIONS[draftSettings.formation].map((slot) => {
                       const left = clamp(50 + (slot.x / 28) * 42, 8, 92);
                       const top = clamp(50 + (slot.z / 52) * 42, 8, 92);
+                      const isStrikerSlot = slot.slot.includes("ST");
+                      const selectedProfile = draftSettings.selectedPlayersBySlot[slot.slot] ?? "default";
                       return (
-                        <div
+                        <button
+                          type="button"
                           key={slot.slot}
-                          className="absolute grid h-9 w-12 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/30 bg-black/45 text-[11px] font-black text-white"
-                          style={{ left: `${left}%`, top: `${top}%`, backgroundColor: slot.line === "keeper" ? "#facc15aa" : `${draftSettings.homeColor}cc` }}
+                          className={`absolute grid min-h-10 min-w-14 -translate-x-1/2 -translate-y-1/2 place-items-center border px-2 py-1 text-[10px] font-black text-white outline-none transition ${
+                            isStrikerSlot
+                              ? selectedFormationSlot === slot.slot
+                                ? "border-emerald-100 bg-emerald-300 text-slate-950 shadow-[0_0_0_3px_rgba(110,231,183,0.22)]"
+                                : "cursor-pointer border-white/60 hover:scale-105 hover:border-emerald-100 focus-visible:ring-2 focus-visible:ring-emerald-200 active:scale-95"
+                              : "cursor-default border-white/25"
+                          }`}
+                          style={{
+                            left: `${left}%`,
+                            top: `${top}%`,
+                            backgroundColor: selectedFormationSlot === slot.slot
+                              ? undefined
+                              : slot.line === "keeper"
+                                ? "#ca8a04dd"
+                                : selectedProfile === "haaland"
+                                  ? "#059669ee"
+                                  : `${draftSettings.homeColor}dd`,
+                          }}
+                          onClick={() => {
+                            if (isStrikerSlot) setSelectedFormationSlot(slot.slot);
+                          }}
+                          aria-label={isStrikerSlot ? `Select player for ${slot.label}` : slot.label}
                         >
-                          {slot.label}
-                        </div>
+                          <span>{selectedProfile === "haaland" ? "HAALAND" : slot.label}</span>
+                          {selectedProfile === "haaland" && <span className="text-[8px] opacity-75">{slot.label}</span>}
+                        </button>
                       );
                     })}
                   </div>
                 </div>
+              </div>
+              <div className="rounded-md border border-white/10 bg-white/5 p-4">
+                {selectedFormationSlot ? (
+                  <div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <div className="text-xs font-black uppercase text-emerald-200/75">Player Selection</div>
+                        <h3 className="mt-1 text-xl font-black">{selectedFormationSlot}</h3>
+                      </div>
+                      <button
+                        type="button"
+                        className="rounded border border-white/15 px-3 py-2 text-xs font-black text-white/75 hover:bg-white/10"
+                        onClick={() => setSelectedFormationSlot(null)}
+                      >
+                        Back
+                      </button>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                      {([
+                        { profile: "default" as const, name: "Default Striker", description: "Balanced movement and finishing." },
+                        { profile: "haaland" as const, name: "Erling Haaland", description: "Tall, powerful striker prototype." },
+                      ]).map((choice) => {
+                        const selected = (draftSettings.selectedPlayersBySlot[selectedFormationSlot] ?? "default") === choice.profile;
+                        return (
+                          <button
+                            type="button"
+                            key={choice.profile}
+                            className={`border p-4 text-left transition ${
+                              selected
+                                ? "border-emerald-200 bg-emerald-300/15 shadow-[inset_0_0_0_1px_rgba(167,243,208,0.2)]"
+                                : "border-white/15 bg-black/20 hover:border-white/35 hover:bg-white/5"
+                            }`}
+                            onClick={() => setDraftSettings((current) => {
+                              const selectedPlayersBySlot = choice.profile === "haaland"
+                                ? Object.fromEntries(Object.keys(current.selectedPlayersBySlot).map((slot) => [slot, "default" as const]))
+                                : { ...current.selectedPlayersBySlot };
+                              selectedPlayersBySlot[selectedFormationSlot] = choice.profile;
+                              return normalizeOfflineSettings({
+                                ...current,
+                                selectedPlayersBySlot,
+                              });
+                            })}
+                          >
+                            <span className="mx-auto grid h-24 w-20 place-items-center" aria-hidden="true">
+                              <span className="relative block h-20 w-12">
+                                <span className="absolute left-1/2 top-0 h-5 w-5 -translate-x-1/2 rounded-full bg-[#e8b88f]" />
+                                <span
+                                  className="absolute left-1/2 top-5 h-8 w-9 -translate-x-1/2"
+                                  style={{ backgroundColor: draftSettings.homeColor }}
+                                />
+                                <span className="absolute left-2 top-12 h-7 w-2 bg-white/80" />
+                                <span className="absolute right-2 top-12 h-7 w-2 bg-white/80" />
+                              </span>
+                            </span>
+                            <span className="block text-base font-black">{choice.name}</span>
+                            <span className="mt-1 block text-xs font-bold uppercase text-white/45">{selectedFormationSlot}</span>
+                            <span className="mt-2 block text-xs leading-relaxed text-white/60">{choice.description}</span>
+                            <span className={`mt-4 block px-3 py-2 text-center text-xs font-black uppercase ${
+                              selected ? "bg-emerald-300 text-slate-950" : "border border-white/15 text-white/75"
+                            }`}>
+                              {selected ? "Selected" : "Select"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid min-h-72 place-items-center text-center">
+                    <div>
+                      <div className="mx-auto grid h-14 w-14 place-items-center border border-emerald-200/35 bg-emerald-300/10 text-xl font-black text-emerald-100">ST</div>
+                      <h3 className="mt-4 text-lg font-black">Select a striker slot</h3>
+                      <p className="mt-2 max-w-xs text-sm leading-relaxed text-white/55">
+                        Click or tap ST, LST, or RST on the formation to choose the player assigned to that exact slot.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -7241,26 +7597,27 @@ export function ArcadeSoccerGame() {
             <SoccerBallLogo />
             <h1 className="mt-5 text-4xl font-black tracking-normal">Futbol</h1>
             {matchState === "ended" && <p className="mt-2 text-lg font-black text-white/85">{resultText} {score.home}-{score.away}</p>}
-            <div className="mt-6 w-full" aria-label="Select striker">
-              <div className="mb-2 text-xs font-black uppercase text-white/55">Test Striker</div>
-              <div className="grid grid-cols-2 rounded-md border border-white/15 bg-black/30 p-1">
-                {([
-                  ["default", "Default Striker"],
-                  ["haaland", "Erling Haaland"],
-                ] as const).map(([profile, label]) => (
-                  <button
-                    key={profile}
-                    type="button"
-                    className={`min-w-0 rounded px-2 py-2 text-xs font-black ${offlineSettings.strikerProfile === profile ? "bg-emerald-300 text-slate-950" : "text-white/70 hover:bg-white/10"}`}
-                    onClick={() => selectStrikerProfile(profile)}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
             <button
-              className="mt-4 inline-flex w-full items-center justify-center gap-3 rounded-md bg-emerald-300 px-6 py-4 text-xl font-black text-slate-950 transition hover:bg-emerald-200 active:scale-[0.98]"
+              type="button"
+              className="mt-6 flex w-full items-center justify-between border border-white/20 bg-white/5 px-4 py-3 text-left transition hover:border-emerald-200/55 hover:bg-emerald-300/10 active:scale-[0.99]"
+              onClick={openSettings}
+            >
+              <span>
+                <span className="block text-xs font-black uppercase text-white/45">Formation & Lineup</span>
+                <span className="mt-1 block text-sm font-black text-white">{offlineSettings.formation}</span>
+              </span>
+              <span className="text-right">
+                <span className="block text-xs font-black uppercase text-emerald-200/65">Striker</span>
+                <span className="mt-1 block text-sm font-black text-emerald-100">
+                  {Object.entries(offlineSettings.selectedPlayersBySlot)
+                    .filter(([, profile]) => profile === "haaland")
+                    .map(([slot]) => `HAALAND / ${slot}`)
+                    .join(", ") || "Default"}
+                </span>
+              </span>
+            </button>
+            <button
+              className="mt-3 inline-flex w-full items-center justify-center gap-3 rounded-md bg-emerald-300 px-6 py-4 text-xl font-black text-slate-950 transition hover:bg-emerald-200 active:scale-[0.98]"
               onClick={() => startMatch()}
               disabled={engineRequested && !sceneRef.current}
             >
@@ -10690,6 +11047,38 @@ function locomotionStateForPlayer(
   return "sprint";
 }
 
+function strideLengthForLocomotion(
+  state: LocomotionState,
+  speed: number,
+  carryingBall: boolean,
+  turnAngle: number,
+) {
+  const openStride = state === "walk"
+    ? LOCOMOTION_STRIDE_LENGTHS.walk
+    : state === "jog"
+      ? LOCOMOTION_STRIDE_LENGTHS.jog
+      : state === "run"
+        ? LOCOMOTION_STRIDE_LENGTHS.run
+        : state === "sprint"
+          ? LOCOMOTION_STRIDE_LENGTHS.sprint
+          : speed < 2.2
+            ? LOCOMOTION_STRIDE_LENGTHS.walk
+            : speed < 5.2
+              ? LOCOMOTION_STRIDE_LENGTHS.jog
+              : speed < 8.6
+                ? LOCOMOTION_STRIDE_LENGTHS.run
+                : LOCOMOTION_STRIDE_LENGTHS.sprint;
+  const directionFactor = state === "sharp-turn"
+    ? 0.7
+    : state === "lateral-shuffle" || state === "backpedal"
+      ? 0.74
+      : Math.abs(turnAngle) > 0.48
+        ? 0.84
+        : 1;
+  const controlFactor = carryingBall ? 0.88 : 1;
+  return openStride * directionFactor * controlFactor;
+}
+
 function animatePlayer(player: PlayerBody, dt: number) {
   const speed = Math.max(player.vel.length(), player.animationSpeed);
   const moving = speed > 0.14;
@@ -10732,8 +11121,8 @@ function animatePlayer(player: PlayerBody, dt: number) {
   }
   player.locomotionBlend = Math.min(1, player.locomotionBlend + dt * 7.5);
   const strideLength = player.role === "keeper"
-    ? 2.5
-    : carryingBall ? 2.05 + sprintBlend * 0.28 : 2.25 + jogBlend * 0.28 + sprintBlend * 0.45;
+    ? strideLengthForLocomotion(nextLocomotionState, Math.min(speed, 7.6), false, turnAngle) * 0.86
+    : strideLengthForLocomotion(nextLocomotionState, speed, carryingBall, turnAngle);
   if (moving && travelled > 0.0001) player.runPhase += travelled / strideLength * Math.PI * 2;
   else if (!moving) player.runPhase += dt * 0.72;
   const gaitSin = Math.sin(player.runPhase);
