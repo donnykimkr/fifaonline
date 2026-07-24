@@ -127,7 +127,7 @@ export function TeamSetupPanel({ settings, onChange }: TeamSetupPanelProps) {
                     value={team.name}
                     maxLength={18}
                     className="mt-1 w-full rounded border border-white/15 bg-black/25 px-3 py-2 text-base font-black normal-case text-white outline-none focus:border-cyan-200"
-                    onChange={(event) => updateSide(side, (current) => updateTeamName(current, event.target.value, side === "home" ? "Futbol" : "Rivals"))}
+                    onChange={(event) => updateSide(side, (current) => updateTeamName(current, event.target.value, side === "home" ? "Futbahl" : "Rivals"))}
                     aria-label={`${sideTitle(side)} name`}
                   />
                 </label>

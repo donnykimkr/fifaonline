@@ -1,0 +1,10 @@
+Asset: Universal Animation Library - Standard Mannequin
+Author: Quaternius
+Source: https://quaternius.com/packs/universalanimationlibrary.html
+OpenGameArt mirror: https://opengameart.org/content/universal-animation-library
+License: CC0 1.0 Universal
+License URL: https://creativecommons.org/publicdomain/zero/1.0/
+
+The Futbahl project uses this asset only for a single-player skeletal locomotion
+prototype. No proprietary EA FC, FIFA, eFootball, or other commercial-game assets
+are included.

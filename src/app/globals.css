@@ -40,7 +40,7 @@ canvas {
   touch-action: none;
 }
 
-@keyframes futbol-scoreboard-enter {
+@keyframes futbahl-scoreboard-enter {
   from {
     opacity: 0;
     transform: translateY(-10px);
@@ -51,7 +51,7 @@ canvas {
   }
 }
 
-.futbol-scoreboard {
+.futbahl-scoreboard {
   display: grid;
   grid-template-columns: 5.25rem minmax(6.5rem, 8.5rem) 3rem 3rem minmax(6.5rem, 8.5rem);
   width: min(31rem, calc(100vw - 1rem));
@@ -64,16 +64,16 @@ canvas {
   color: #fff;
   font-family: Arial, Helvetica, sans-serif;
   letter-spacing: 0;
-  animation: futbol-scoreboard-enter 240ms ease-out both;
+  animation: futbahl-scoreboard-enter 240ms ease-out both;
 }
 
-.futbol-scoreboard > span {
+.futbahl-scoreboard > span {
   display: grid;
   min-width: 0;
   place-items: center;
 }
 
-.futbol-scoreboard__time {
+.futbahl-scoreboard__time {
   border-right: 1px solid rgb(255 255 255 / 12%);
   background: #17253a;
   color: #b6ffe4;
@@ -83,7 +83,7 @@ canvas {
   font-weight: 800;
 }
 
-.futbol-scoreboard__team {
+.futbahl-scoreboard__team {
   overflow: hidden;
   padding: 0 0.8rem;
   color: #f8fbff;
@@ -93,15 +93,15 @@ canvas {
   white-space: nowrap;
 }
 
-.futbol-scoreboard__team--away {
+.futbahl-scoreboard__team--away {
   justify-items: end;
 }
 
-.futbol-scoreboard__team--home {
+.futbahl-scoreboard__team--home {
   justify-items: start;
 }
 
-.futbol-scoreboard__score {
+.futbahl-scoreboard__score {
   background: #76f7c5;
   color: #081821;
   font-size: 1.45rem;
@@ -110,31 +110,31 @@ canvas {
   line-height: 1;
 }
 
-.futbol-scoreboard__score--away {
+.futbahl-scoreboard__score--away {
   border-right: 1px solid rgb(8 24 33 / 26%);
 }
 
-.futbol-scoreboard__score--home {
+.futbahl-scoreboard__score--home {
   background: #f4fff9;
 }
 
 @media (max-width: 520px) {
-  .futbol-scoreboard {
+  .futbahl-scoreboard {
     grid-template-columns: 4.4rem minmax(3.6rem, 1fr) 2.6rem 2.6rem minmax(3.6rem, 1fr);
     width: min(22.5rem, calc(100vw - 0.75rem));
     min-height: 2.4rem;
   }
 
-  .futbol-scoreboard__time {
+  .futbahl-scoreboard__time {
     font-size: 0.68rem;
   }
 
-  .futbol-scoreboard__team {
+  .futbahl-scoreboard__team {
     padding: 0 0.45rem;
     font-size: 0.64rem;
   }
 
-  .futbol-scoreboard__score {
+  .futbahl-scoreboard__score {
     font-size: 1.25rem;
   }
 }

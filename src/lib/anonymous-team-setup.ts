@@ -269,12 +269,12 @@ export function createTeamSetup(side: TeamSide, name: string, formationId: Forma
       makeAnonymousPlayer(side, slotDefinition, index),
     ]),
   );
-  return { name: sanitizeName(name, side === "home" ? "Futbol" : "Rivals"), formationId, playersBySlot };
+  return { name: sanitizeName(name, side === "home" ? "Futbahl" : "Rivals"), formationId, playersBySlot };
 }
 
 export const DEFAULT_OFFLINE_SETTINGS: OfflineSettings = {
   version: 2,
-  userTeam: createTeamSetup("home", "Futbol", "4-3-3"),
+  userTeam: createTeamSetup("home", "Futbahl", "4-3-3"),
   aiTeam: createTeamSetup("away", "Rivals", "4-3-3"),
   homeColor: "#38bdf8",
   crowdVolume: 0.45,
@@ -363,7 +363,7 @@ export function normalizeOfflineSettings(value: unknown): OfflineSettings {
       };
   return {
     version: 2,
-    userTeam: normalizeTeam(userTeamSource, "home", "Futbol", legacyFormation),
+    userTeam: normalizeTeam(userTeamSource, "home", "Futbahl", legacyFormation),
     aiTeam: normalizeTeam(aiTeamSource, "away", "Rivals", "4-3-3"),
     homeColor: typeof source.homeColor === "string" && /^#[0-9a-f]{6}$/i.test(source.homeColor)
       ? source.homeColor
@@ -450,7 +450,7 @@ export function runAnonymousSetupSelfTests(iterationsPerFormation = 100) {
   const failures: string[] = [];
   for (const formationId of FORMATION_KEYS) {
     for (let index = 0; index < iterationsPerFormation; index += 1) {
-      const team = randomizeTeam(createTeamSetup("home", "Futbol", formationId), "home");
+      const team = randomizeTeam(createTeamSetup("home", "Futbahl", formationId), "home");
       const result = validateTeamSetup(team);
       const players = Object.values(team.playersBySlot);
       const keepers = FORMATION_OPTIONS[formationId].filter((entry) => entry.line === "keeper");

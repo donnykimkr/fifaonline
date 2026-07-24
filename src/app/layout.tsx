@@ -5,12 +5,12 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Futbol",
-  description: "A 3D arcade soccer browser game with AI teammates and anonymous gameplay analytics.",
+  title: "Futbahl",
+  description: "Futbahl is a 3D arcade football game with responsive controls and AI teammates.",
   icons: {
-    icon: "/futbol-ball.svg",
-    shortcut: "/futbol-ball.svg",
-    apple: "/futbol-ball.svg",
+    icon: "/futbahl-ball.svg",
+    shortcut: "/futbahl-ball.svg",
+    apple: "/futbahl-ball.svg",
   },
 };
 

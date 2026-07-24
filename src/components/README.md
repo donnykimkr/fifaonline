@@ -1,6 +1,6 @@
-# Futbol Arcade Soccer
+# Futbahl Arcade Football
 
-Futbol Arcade Soccer is an ad-free 3D browser football game. It focuses on fast local play with two independently configurable anonymous, numbered teams: one active player, AI teammates, AI opponents, ball physics, goal kicks, throw-ins, corners, and a side broadcast camera.
+Futbahl is an ad-free 3D browser football game. It focuses on fast local play with two independently configurable anonymous, numbered teams: one active player, AI teammates, AI opponents, ball physics, goal kicks, throw-ins, corners, and a side broadcast camera.
 
 Use Brave Browser as the primary browser for testing and playing. Brave is fast, Chromium-based, better for privacy by default, and suitable for modern WebGL game performance.
 
@@ -87,7 +87,7 @@ Shirt numbers must be unique within a team and remain in the `1-99` range. The f
 
 ## Audio Sources And Licensing
 
-Futbol does not ship ripped broadcast, commercial-game, or third-party stadium audio.
+Futbahl does not ship ripped broadcast, commercial-game, or third-party stadium audio.
 
 - Synthetic crowd white noise has been removed.
 - Browser `speechSynthesis` commentary has been removed.
@@ -95,6 +95,12 @@ Futbol does not ship ripped broadcast, commercial-game, or third-party stadium a
 - Full source research and attribution status are documented in `public/audio/ATTRIBUTION.md`.
 
 Audio begins only after the player presses Kickoff. Active audio sources are stopped when a match resets.
+
+## Character Animation Asset
+
+The single-player skeletal locomotion prototype uses the Quaternius Universal Animation Library Standard Mannequin under CC0 1.0. The source and license are recorded in `public/models/futbahl-locomotion-prototype.LICENSE.txt`.
+
+No proprietary EA FC, FIFA, eFootball, or other commercial-game character assets are included. The remaining low-poly footballers and their hairstyles are original project geometry.
 
 ## Connect Supabase To Vercel
 
@@ -136,6 +142,6 @@ Use Brave Browser for the primary test pass.
 3. Set the Supabase environment variables listed above if you want anonymous analytics.
 4. Run the default build command: `npm run build`.
 5. Deploy.
-6. Add `playfutbol.vercel.app` as the production domain in Vercel Project Settings -> Domains.
+6. Attach the approved public production domain in Vercel Project Settings -> Domains.
 
-After deployment, open `https://playfutbol.vercel.app` in Brave Browser for the final gameplay verification pass.
+After deployment, open the public production domain in Brave Browser for the final gameplay verification pass.
